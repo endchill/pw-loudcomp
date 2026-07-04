@@ -39,7 +39,7 @@ ${BOLD}${RED}Commands:${RESET}
     ${GREEN}stop-daemon${RESET}       Stops the daemon if it's running, ${BOLD}Recommended${RESET} to use systemd service instead
     ${GREEN}start-socket${RESET}      Starts the socket if it's not running, ${BOLD}Recommended${RESET} to use systemd socket instead
     ${GREEN}stop-socket${RESET}       Stops the socket if it's running, ${BOLD}Recommended${RESET} to use systemd socket instead
-    ${GREEN}reload${RESET}            Reloads everything instead of restart the daemon
+    ${GREEN}reload${RESET}            Manualy reloads everything instead of restart the daemon
     ${GREEN}create-config${RESET}     Manualy creates a config file
 
     ${GREEN}set-input-gain${RESET}    ${YELLOW}<value>${RESET} Sets an input gain value or increase/decrease it
@@ -451,6 +451,15 @@ function _reload() {
 }
 
 
+function _auto_reload() {
+    coproc auto_reload {
+        while read -r directory event filename; do
+            _reload
+        done < <(inotifywait -q -m -e close_write "$config_dir")
+    }
+}
+
+
 function _clean_up() {
     trap - EXIT INT TERM USR1
 
@@ -638,6 +647,9 @@ EOF
     wpctl set-volume "$loopback_node_id" 1.0
     wpctl set-volume "$output_id" 1.0
     wpctl set-mute "$output_id" "$mute_state"
+
+
+    _auto_reload
 
 
     touch "$tmp_dir/active"
