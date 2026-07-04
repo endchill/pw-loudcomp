@@ -1,0 +1,21 @@
+[Unit]
+Description=PipeWire Loudness Compensator
+After=pipewire.service wireplumber.service
+Requires=pipewire.service wireplumber.service
+Wants=pw-loudcomp-socket-listener.socket
+BindsTo=pipewire.service
+
+[Service]
+Type=notify
+NotifyAccess=all
+ExecStart=%h/.local/bin/pw-loudcomp start-daemon
+ExecReload=%h/.local/bin/pw-loudcomp reload
+ExecStop=%h/.local/bin/pw-loudcomp stop-daemon
+Restart=on-failure
+RestartSec=3
+CPUSchedulingPolicy=rr
+CPUSchedulingPriority=50
+Nice=-11
+
+[Install]
+WantedBy=default.target

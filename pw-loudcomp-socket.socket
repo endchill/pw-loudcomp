@@ -1,0 +1,13 @@
+[Unit]
+Description=pw-loudcomp socket listner
+
+[Socket]
+RuntimeDirectory=pw-loudcomp
+RuntimeDirectoryMode=0660
+RuntimeDirectoryPreserve=yes
+ListenStream=%t/pw-loudcomp/state.sock
+RemoveOnStop=yes
+Accept=yes
+
+[Install]
+WantedBy=sockets.target

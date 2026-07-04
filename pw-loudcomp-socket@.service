@@ -1,0 +1,5 @@
+[Service]
+ExecStart=%h/.local/bin/pw-loudcomp _socket_handler
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
