@@ -101,10 +101,10 @@ function _check_config() {
 function _create_config() {
     cat << EOF > "$settings_filepath"
 input_gain=0
-# default 0 | Any dB
+# default 0 | Any dBFS
 
 main_listening_volume=94
-# default 94 | any dB
+# default 94 | any dB SPL
 
 processing_mode=1
 # default 1
@@ -143,7 +143,7 @@ is_clipping=0
 #         1 = enabled
 
 clipping_range=6
-# default 6 | 0-24 dB
+# default 6 | 0-24 dBFS
 
 output_device="auto"
 # output_device="auto"
@@ -170,28 +170,20 @@ auto_adjust_volume=true
 # default true
 #         Whether to auto adjust volume when input gain is changed, to remain with almost the same loudness
 
-limit_input_gain=true
-# default true
-#         Whether to limit the input gain in case something went wrong when inputting a value
-#         It will limit it based on the "listening_volumes" array values
+highest_input_gain_limit=
+# default no value | any dBFS
+#         A variable to add a upper limit sealing for input gain, no value for no limit
 
-listening_volumes=(85 94 105)
-# default (85 94 105)
-
-# highest_input_gain_limit=
-# no value
-#         A variable to forcely specify an upper limit sealing for input gain
-
-# lowest_input_gain_limit=
-# no value
-#         A variable to forcely specify a lower limit floor for input gain
+lowest_input_gain_limit=
+# default no value | any dBFS
+#         A variable to add a lower limit floor for input gain, no value for no limit
 
 highest_volume_limit=
-# no value
+# default no value for 106
 #         A variable to forcely specify an upper limit sealing for volume
 
 lowest_volume_limit=
-# no value
+# default no value for 17
 #         A variable to forcely specify an upper limit floor for volume
 EOF
 }
@@ -212,8 +204,8 @@ function _send_state() {
             --argjson muteState                 "$mute_state"                                 \
             --argjson curveState                "$curve_state"                                \
             --argjson listeningVolume           "$((listening_volume_correction+input_gain))" \
-            --argjson highestInputGain          "$highest_input_gain_limit"                   \
-            --argjson lowestInputGain           "$lowest_input_gain_limit"                    \
+            --arg     highestInputGain          "${highest_input_gain_limit:-N/A}"            \
+            --arg     lowestInputGain           "${lowest_input_gain_limit:-N/A}"             \
         '{
             outputId:                  $outputID,
             inputGain:                 $inputGain,
@@ -221,56 +213,32 @@ function _send_state() {
             muteState:                 $muteState,
             curveState:                $curveState,
             listeningVolume:           $listeningVolume,
-            highestInputGain:          $highestInputGain,
-            lowestInputGain:           $lowestInputGain
+            highestInputGain:          ($highestInputGain | tonumber? // $highestInputGain),
+            lowestInputGain:           ($lowestInputGain | tonumber? // $lowestInputGain)
         }' > "$fifo_filepath" &
     done
-}
-
-
-function _set_next_input_gain() {
-    if [[ "$listening_volume_index" -ge "$((${#listening_volumes[@]} - 1))" ]]; then
-        return
-    else
-        ((++listening_volume_index))
-        _save_state "listening_volume_index"
-    fi
-    input_gain="$((listening_volumes[$listening_volume_index]-listening_volume_correction))"
-}
-
-
-function _set_previous_input_gain() {
-    if [[ "$listening_volume_index" -le 0 ]]; then
-        return
-    else
-        ((listening_volume_index--))
-        _save_state "listening_volume_index"
-    fi
-    input_gain="$((listening_volumes[$listening_volume_index]-listening_volume_correction))"
 }
 
 
 function _set_input_gain() {
     local previous_input_gain="$(awk '{printf "%.0f\n", $1}' <<< "$input_gain")"
 
-    if [[ "$1" =~ (next|previous) ]]; then
-        _set_${BASH_REMATCH[1]}_input_gain
-    elif [[ "$limit_input_gain" == true ]]; then
-        if [[ "$1" -ge "$highest_input_gain_limit" ]]; then
-            input_gain="$highest_input_gain_limit"
-        elif [[ "$1" -le "$lowest_input_gain_limit" ]]; then
-            input_gain="$lowest_input_gain_limit"
-        else
-            input_gain="$1"
-        fi
+    if [[ -n "${highest_input_gain_limit:-}" && "$1" -ge "$highest_input_gain_limit" ]]; then
+        input_gain="$highest_input_gain_limit"
+    elif [[ -n "${lowest_input_gain_limit:-}" && "$1" -le "$lowest_input_gain_limit" ]]; then
+        input_gain="$lowest_input_gain_limit"
+    else
+        input_gain="$1"
     fi
 
     raw_input_gain=$(awk '{printf "%.6f", (10 ^ ($1 / 20))}' <<< "$input_gain")
 
 
     if [[ "$auto_adjust_volume" == true ]]; then
-        calculated_relative_volume="$((previous_input_gain-input_gain))"
-        if [[ "$calculated_relative_volume" -gt 0 ]]; then
+        local calculated_relative_volume="$((previous_input_gain-input_gain))"
+        if  [[ "$calculated_relative_volume" -eq 0 ]]; then
+            :
+        elif [[ "$calculated_relative_volume" -gt 0 ]]; then
             _set_relative_volume "$calculated_relative_volume" "+"
         elif [[ "$calculated_relative_volume" -lt 0 ]]; then
             _set_relative_volume "${calculated_relative_volume#-}" "-"
@@ -303,13 +271,14 @@ function _set_volume() {
 
 
 function _set_relative_input_gain() {
+    local absolute_input_gain
     if [[ "$2" == "+" ]]; then
-        input_gain="$((input_gain+$1))"
+        absolute_input_gain="$((input_gain+$1))"
     else
-        input_gain="$((input_gain-$1))"
+        absolute_input_gain="$((input_gain-$1))"
     fi
 
-    _set_input_gain "$input_gain"
+    _set_input_gain "$absolute_input_gain"
 }
 
 
@@ -420,27 +389,30 @@ function _disconnect_nodes() {
 
 function _reload_config() {
     source "$settings_filepath"
+    source "$state_filepath"
 
-    listening_volume_correction="$((main_listening_volume-input_gain))"
 
-    [[ -z "${highest_input_gain_limit:-}"    ]] && highest_input_gain_limit="$((listening_volumes[-1]-listening_volume_correction))"
-    [[ -z "${lowest_input_gain_limit:-}"     ]] && lowest_input_gain_limit="$((listening_volumes[0]-listening_volume_correction))"
-    [[ -z "${highest_volume_limit:-}"        ]] && highest_volume_limit=106
-    [[ -z "${lowest_volume_limit:-}"         ]] && lowest_volume_limit=18
+    # volume="$(awk '{printf "%.0f\n", ((($1 + $2) / $2) * 100)}' <<< "$raw_volume ${listening_volumes[$listening_volume_index]}")"
+    [[ -z "${highest_volume_limit:-}" || "${highest_volume_limit:-}" -gt 106 ]] && highest_volume_limit=106
+    [[ -z "${lowest_volume_limit:-}"  || "${lowest_volume_limit:-}"  -lt 17  ]] && lowest_volume_limit=17
+    volume="$((raw_volume+100))"
     [[ "$volume" -gt "$highest_volume_limit" ]] && volume="$highest_volume_limit"
     [[ "$volume" -lt "$lowest_volume_limit"  ]] && volume="$lowest_volume_limit"
     raw_volume="$((volume-100))"
+    _send_state
+    _save_state "raw_volume"
+
 
     if [[ "$input_gain" -ne "$settings_input_gain" ]]; then
         raw_input_gain="$(awk '{printf "%.6f\n", (10 ^ ($1 / 20))}' <<< "$input_gain")"
+        _set_input_gain "$input_gain"
         settings_input_gain="$input_gain"
         _save_state "settings_input_gain"
     fi
 
-    _send_state
 
     printf 'set input %s\nset mode %s\nset fft %s\nset approx %s\nset std %s\nset hclip %s\nset hcrange %s\nset volume %s\n' \
-    "$raw_input_gain" "$processing_mode" "$fft_quality" "$iir_approx" "$curve" "$is_clipping" "$clipping_range" "$raw_volume" > "$tmp_dir/command_handler"
+    "$raw_input_gain" "$processing_mode" "$fft_quality" "$iir_approx" "$curve" "$is_clipping" "$clipping_range" "$raw_volume" >&"${jalv[1]}"
 }
 
 
@@ -454,7 +426,9 @@ function _reload() {
 function _auto_reload() {
     coproc auto_reload {
         while read -r directory event filename; do
-            _reload
+            if [[ "$event" == "CLOSE_WRITE,CLOSE" ]]; then
+                printf '_reload\n' > "$tmp_dir/command_handler"
+            fi
         done < <(inotifywait -q -m -e close_write "$config_dir")
     }
 }
@@ -465,12 +439,12 @@ function _clean_up() {
 
     [[ -n "${output_id:-}" ]] && wpctl set-mute "$output_id" 1
 
-    [[ -f "$tmp_dir/jalv_pid" ]] && jalv_pid="$(<"$tmp_dir/jalv_pid")"; rm -rf "$tmp_dir/jalv_pid"
     [[ -d "$tmp_dir"          ]] && rm -rf "$tmp_dir"/*
-
     (true >&3) 2>/dev/null              && exec 3>&-
-    kill -0 "${jalv_pid:-}" 2>/dev/null && pkill -P "$jalv_pid" && kill "$jalv_pid"
+    kill -0 "${jalv_PID:-}" 2>/dev/null && pkill -P "$jalv_PID" && kill "$jalv_PID"
+    kill -0 "${auto_reload_PID:-}" 2>/dev/null && pkill -P "$auto_reload_PID" && kill "$auto_reload_PID"
     [[ -n "${loopback_node_id:-}" ]]    && pw-cli destroy "$loopback_node_id"
+
 
     [[ "$system_transfer" == true ]] && output_volume="$(awk '{printf "%.2f\n", (10 ^ (($1 + $2) / 60))}' <<< "$raw_volume $input_gain")"
 
@@ -528,7 +502,7 @@ EOF
     source "$state_filepath"
 
 
-    listening_volume_correction="$((main_listening_volume-input_gain))"
+    listening_volume_correction="$((listening_volume-input_gain))"
     loopback_node_description="Pipewire Loudness Compensator Sink"
     loopback_node_name="${loopback_node_description// /-}"
 
@@ -593,26 +567,33 @@ EOF
         input_gain="$(awk '{printf "%.0f\n", (20 * (log($1) / log(10)))}' <<< "$raw_input_gain")"
     else
         raw_input_gain="$(awk '{printf "%.6f\n", (10 ^ ($1 / 20))}' <<< "$input_gain")"
+        _save_state "raw_input_gain"
         settings_input_gain="$input_gain"
         _save_state "settings_input_gain"
+
     fi
 
 
     [[ "$system_transfer" == true ]] && raw_volume="$(awk '{printf "%.0f\n", ((60 * ( log($2) / log(10))) - $1)}' <<< "$input_gain $output_volume")"
+    [[ "$raw_volume" == "-inf"    ]] && raw_volume=-83
     # volume="$(awk '{printf "%.0f\n", ((($1 + $2) / $2) * 100)}' <<< "$raw_volume ${listening_volumes[$listening_volume_index]}")"
     volume="$((raw_volume+100))"
 
-
-    [[ -z "${highest_input_gain_limit:-}"    ]] && highest_input_gain_limit="$((listening_volumes[-1]-listening_volume_correction))"
-    [[ -z "${lowest_input_gain_limit:-}"     ]] && lowest_input_gain_limit="$((listening_volumes[0]-listening_volume_correction))"
-    [[ -z "${highest_volume_limit:-}"        ]] && highest_volume_limit=106
-    [[ -z "${lowest_volume_limit:-}"         ]] && lowest_volume_limit=17
+    [[ -z "${highest_volume_limit:-}" || "${highest_volume_limit:-}" -gt 106 ]] && highest_volume_limit=106
+    [[ -z "${lowest_volume_limit:-}"  || "${lowest_volume_limit:-}"  -lt 17  ]] && lowest_volume_limit=17
     [[ "$volume" -gt "$highest_volume_limit" ]] && volume="$highest_volume_limit"
     [[ "$volume" -lt "$lowest_volume_limit"  ]] && volume="$lowest_volume_limit"
 
 
     mkfifo "$tmp_dir/command_handler"
     exec 3<> "$tmp_dir/command_handler"
+
+
+    while read -r id; do
+        for id in "${loopback_nodes_id[@]}"; do
+            pw-cli destroy "$id"
+        done
+    done < <(wpctl list | awk -v loopback_node_name="$loopback_node_name" '$0 ~ loopback_node_name {print $1}')
 
 
     pw-cli create-node adapter '{
@@ -634,7 +615,6 @@ EOF
             kill -USR1 "$main_pid"
         fi
     }
-    printf '%s\n' "$jalv_PID" > "$tmp_dir/jalv_pid"
 
     _connect_nodes
 
@@ -739,8 +719,6 @@ case "${1:-}" in
                 printf '_set_relative_input_gain %s %s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" > "$tmp_dir/command_handler"
             elif [[ "$2" =~ ^(-?[0-9]+)$ ]]; then
                 printf '_set_input_gain %s\n' "$2" > "$tmp_dir/command_handler"
-            elif [[ "$2" =~ (next|previous) ]] || [[ "$2" =~ ^[0-9]+$ ]]; then
-                printf '_set_input_gain %s\n' "$2" > "$tmp_dir/command_handler"
             else
                 printf $'Invalid format: \'%b%s%b\'\n' "$RED" "$2" "$RESET" >&2
                 printf $'Try %b\'%s --help\'%b for more information.\n' "$RED" "$name" "$RESET" >&2
@@ -766,9 +744,9 @@ case "${1:-}" in
                 _is_running_message
                 exit 1
             fi
-        elif [[ "$2" =~ ^([0-9]+)%?$ ]]; then
+        elif [[ "$2" =~ ^([0-9]+)$ ]]; then
             if [[ -f "$tmp_dir/active" ]]; then
-                printf "_set_volume %s\n" "${BASH_REMATCH[1]}" > "$tmp_dir/command_handler"
+                printf "_set_volume %s\n" "$2" > "$tmp_dir/command_handler"
             elif [[ "${system_fallback:-}" == true ]]; then
                 wpctl set-volume @DEFAULT_AUDIO_SINK@ "$2"
             else
