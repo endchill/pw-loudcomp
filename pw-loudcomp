@@ -47,7 +47,7 @@ ${BOLD}${RED}Commands:${RESET}
     ${GREEN}set-mute-state${RESET}    ${YELLOW}<state>${RESET} Whether to mute/unmute the output device
     ${GREEN}set-curve-state${RESET}   ${YELLOW}<state>${RESET} Whether to enable/disable the correction curve
 
-    ${GREEN}help, --help, -h${RESET}            Returns this message
+    ${GREEN}--help, -h${RESET}                  Returns this message
     ${GREEN}set <property> <raw_value>${RESET}  Directly controls jalv
 
 ${BOLD}${RED}Arguments:${RESET}
@@ -817,7 +817,7 @@ case "${1:-}" in
         _check_config
         exit 0
     ;;
-    "help"|"--help"|"-h")
+    "--help"|"-h")
         _help
         exit 0
     ;;
