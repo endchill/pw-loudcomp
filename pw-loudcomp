@@ -35,25 +35,25 @@ ${BOLD}${RED}Usage:${RESET}
     ${GREEN}${name}${RESET} ${YELLOW}<command> [args]${RESET}
 
 ${BOLD}${RED}Commands:${RESET}
-    ${GREEN}start-daemon${RESET}      Starts the daemon if it's not running, ${BOLD}Recommended${RESET} to use systemd service instead
-    ${GREEN}stop-daemon${RESET}       Stops the daemon if it's running, ${BOLD}Recommended${RESET} to use systemd service instead
-    ${GREEN}start-socket${RESET}      Starts the socket if it's not running, ${BOLD}Recommended${RESET} to use systemd socket instead
-    ${GREEN}stop-socket${RESET}       Stops the socket if it's running, ${BOLD}Recommended${RESET} to use systemd socket instead
-    ${GREEN}reload${RESET}            Manualy reloads everything instead of restart the daemon
-    ${GREEN}create-config${RESET}     Manualy creates a config file
+    ${GREEN}start-daemon${RESET}       Starts the daemon if it's not running, ${BOLD}Recommended${RESET} to use systemd service instead
+    ${GREEN}stop-daemon${RESET}        Stops the daemon if it's running, ${BOLD}Recommended${RESET} to use systemd service instead
+    ${GREEN}start-socket${RESET}       Starts the socket if it's not running, ${BOLD}Recommended${RESET} to use systemd socket instead
+    ${GREEN}stop-socket${RESET}        Stops the socket if it's running, ${BOLD}Recommended${RESET} to use systemd socket instead
+    ${GREEN}reload${RESET}             Manualy reloads everything instead of restart the daemon
+    ${GREEN}create-config${RESET}      Manualy creates a config file
 
-    ${GREEN}set-input-gain${RESET}    ${YELLOW}<value>${RESET} Sets an input gain value or increase/decrease it
-    ${GREEN}set-volume${RESET}        ${YELLOW}<value>${RESET} Sets a volume value or increase/decrease it
-    ${GREEN}set-mute-state${RESET}    ${YELLOW}<state>${RESET} Whether to mute/unmute the output device
-    ${GREEN}set-curve-state${RESET}   ${YELLOW}<state>${RESET} Whether to enable/disable the correction curve
+    ${GREEN}set-input-gain${RESET}     ${YELLOW}<value>${RESET} Sets an input gain value or increase/decrease it
+    ${GREEN}set-volume${RESET}         ${YELLOW}<value>${RESET} Sets a volume value or increase/decrease it
+    ${GREEN}set-mute-state${RESET}     ${YELLOW}<state>${RESET} Whether to mute/unmute the output device
+    ${GREEN}set-curve-state${RESET}    ${YELLOW}<state>${RESET} Whether to enable/disable the correction curve
 
-    ${GREEN}--help, -h${RESET}                  Returns this message
-    ${GREEN}set <property> <raw_value>${RESET}  Directly controls jalv
+    ${GREEN}--help, -h${RESET}                    Returns this message
+    ${GREEN}set <property> <raw_value>${RESET}    Directly controls jalv
 
 ${BOLD}${RED}Arguments:${RESET}
-    ${GREEN}2(+/-)${RESET}            Sets an exact value                        ${CYAN}(volume, input gain)${RESET}
-    ${GREEN}2%(+/-)${RESET}           Increases/decreases relative to the value  ${CYAN}(volume, input gain)${RESET}
-    ${GREEN}1/0/toggle${RESET}        Whether to set a state                     ${CYAN}(mute, curve)${RESET}
+    ${GREEN}2(+/-)${RESET}             Sets an exact value                        ${CYAN}(volume, input gain)${RESET}
+    ${GREEN}2%(+/-)${RESET}            Increases/decreases relative to the value  ${CYAN}(volume, input gain)${RESET}
+    ${GREEN}1/0/toggle${RESET}         Whether to set a state                     ${CYAN}(mute, curve)${RESET}
 
 EOF
 )"
@@ -439,7 +439,7 @@ function _clean_up() {
 
     [[ -n "${output_id:-}" ]] && wpctl set-mute "$output_id" 1
 
-    [[ -d "$tmp_dir"          ]] && rm -rf "$tmp_dir"/*
+
     (true >&3) 2>/dev/null              && exec 3>&-
     kill -0 "${jalv_PID:-}" 2>/dev/null && pkill -P "$jalv_PID" && kill "$jalv_PID"
     kill -0 "${auto_reload_PID:-}" 2>/dev/null && pkill -P "$auto_reload_PID" && kill "$auto_reload_PID"
@@ -453,6 +453,9 @@ function _clean_up() {
         wpctl set-default "$output_id"
         wpctl set-mute "$output_id" "$mute_state"
     fi
+
+
+    [[ -d "$tmp_dir" ]] && rm -rf "$tmp_dir"/*
 }
 
 
@@ -505,6 +508,7 @@ EOF
     listening_volume_correction="$((listening_volume-input_gain))"
     loopback_node_description="Pipewire Loudness Compensator Sink"
     loopback_node_name="${loopback_node_description// /-}"
+    loopback_node_name="${loopback_node_name,,}"
 
 
     if [[ "$output_device" == "auto" ]]; then
@@ -513,9 +517,9 @@ EOF
             printf "output_id=%s\n", $1
         }')"
     else
-        if wpctl list | grep "$output_device"; then
+        if wpctl list | grep "$output_device" >/dev/null; then
             output_name="$output_device"
-            output_id="$(wpctl list | awk -v output_device="$output_device" '$0 ~ output_device {print $1}')"
+            output_id="$(wpctl list | awk -v output_device="$output_device" '$2 ~ output_device {print $1}')"
         else
             if [[ "$output_device_fallback" == "none" ]]; then
                 printf '%b%s%b device not found.\n' "$RED" "$output_device" "$RESET"
@@ -527,9 +531,9 @@ EOF
                     printf "output_id=%s\n", $1
                 }')"
             else
-                if wpctl list | grep "$output_device_fallback"; then
+                if wpctl list | grep "$output_device_fallback" >/dev/null; then
                     output_name="$output_device_fallback"
-                    output_id="$(wpctl list | awk -v output_device_fallback="$output_device_fallback" '$0 ~ output_device_fallback {print $1}')"
+                    output_id="$(wpctl list | awk -v output_device_fallback="$output_device_fallback" '$2 ~ output_device_fallback {print $1}')"
                 else
                     printf '%b%s%b fallback device not found.\n' "$RED" "$output_device_fallback" "$RESET"
                     _clean_up
@@ -583,17 +587,11 @@ EOF
     [[ -z "${lowest_volume_limit:-}"  || "${lowest_volume_limit:-}"  -lt 17  ]] && lowest_volume_limit=17
     [[ "$volume" -gt "$highest_volume_limit" ]] && volume="$highest_volume_limit"
     [[ "$volume" -lt "$lowest_volume_limit"  ]] && volume="$lowest_volume_limit"
+    raw_volume="$((volume-100))"
 
 
     mkfifo "$tmp_dir/command_handler"
     exec 3<> "$tmp_dir/command_handler"
-
-
-    while read -r id; do
-        for id in "${loopback_nodes_id[@]}"; do
-            pw-cli destroy "$id"
-        done
-    done < <(wpctl list | awk -v loopback_node_name="$loopback_node_name" '$0 ~ loopback_node_name {print $1}')
 
 
     pw-cli create-node adapter '{
@@ -604,7 +602,8 @@ EOF
         audio.position   = [ FL FR ]
         media.class      = Audio/Sink
     }'
-    loopback_node_id="$(wpctl list | awk -v loopback_node_name="$loopback_node_name" '$0 ~ loopback_node_name {print $1}')"
+
+    loopback_node_id="$(wpctl list | awk -v loopback_node_name="$loopback_node_name" '$2 == loopback_node_name {print $1}')"
 
 
     coproc jalv {
@@ -642,7 +641,7 @@ EOF
             "set")
                 printf 'set %s %s\n' "$arg1" "$arg2" >&"${jalv[1]}"
             ;;
-            "_set_relative_input_gain"|"_set_relative_volume"|"_set_input_gain"|"_set_relative_input_gain"|"_set_volume"|"_set_relative_volume"|"_set_mute_state"|"_set_curve_state"|"_start_socket"|"_stop_socket"|"_send_state"|"_reload")
+            "_set_relative_input_gain"|"_set_relative_volume"|"_set_input_gain"|"_set_relative_input_gain"|"_set_volume"|"_set_relative_volume"|"_set_mute_state"|"_set_curve_state"|"_stop_daemon"|"_start_socket"|"_stop_socket"|"_send_state"|"_reload")
                 ${cmd} "$arg1" "$arg2"
             ;;
             *)
@@ -651,6 +650,11 @@ EOF
             ;;
         esac
     done <&3
+}
+
+
+function _stop_daemon() {
+    exit 0
 }
 
 
@@ -666,8 +670,16 @@ case "${1:-}" in
     ;;
     "stop-daemon")
         if [[ -f "$tmp_dir/active" ]]; then
-            _clean_up
-            exit 0
+            printf '_stop_daemon\n' > "$tmp_dir/command_handler"
+            while read -r directory event filename; do
+                if [[ "$filename" == "active" ]]; then
+                    exit 0
+                fi
+            done < <(inotifywait -q -m -e delete "$tmp_dir")
+            # source "$settings_filepath"
+            # source "$state_filepath"
+            # _clean_up
+            # exit 0
         else
             printf 'Operation failed.\n' >&2
             _is_running_message
