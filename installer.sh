@@ -13,21 +13,29 @@ fi
 [[ "$EUID" -eq 0 ]] && { printf 'Do %bNOT%b run this script as root.\n' "$RED" "$RESET" >&2; exit 1; }
 
 
-bin_dir="$HOME/.local/bin"
+user_bin_dir="$HOME/.local/bin"
 systemd_user_units_dir="${XDG_CONFIG_HOME:-"$HOME/.config"}/systemd/user"
+man_page_dir="${XDG_DATA_HOME:-"$HOME/.local/share"}/man"
 
 
 function _menu() {
-    printf 'i) to install pw-loudcomp\nu) to uninstall pw-loudcomp\nq) to quit the instller\n'
+    printf 'i) to install pw-loudcomp\nu) to uninstall pw-loudcomp\nq) to quit the installer\n'
     read -r answer
 }
 
 
 function _copy() {
-    local filename="${1##*/}"
-    local src="${BASH_SOURCE[0]%/*}/${1##*/}"
-    local dst="$1"
-    local dst_dir="${1%/*}"
+    if [[ "$#" -eq 2 ]]; then
+        local filename="${1##*/}"
+        local src="${BASH_SOURCE[0]%/*}/$2/${1##*/}"
+        local dst="$1"
+        local dst_dir="${1%/*}"
+    else
+        local filename="${1##*/}"
+        local src="${BASH_SOURCE[0]%/*}/${1##*/}"
+        local dst="$1"
+        local dst_dir="${1%/*}"
+    fi
 
     if [[ ! -e "$1" ]]; then
         cp "$src" "$dst_dir"
@@ -59,19 +67,24 @@ while true; do
 
     case "$answer" in
         "i")
-            [[ ! -d "$bin_dir"                ]] && mkdir -p "$bin_dir"
+            [[ ! -d "$user_bin_dir"           ]] && mkdir -p "$user_bin_dir"
+            [[ ! -d "$man_page_dir/man1"      ]] && mkdir -p "$man_page_dir/man1"
+            [[ ! -d "$man_page_dir/man5"      ]] && mkdir -p "$man_page_dir/man5"
             [[ ! -d "$systemd_user_units_dir" ]] && mkdir -p "$systemd_user_units_dir"
 
 
-            _copy "$bin_dir/pw-loudcomp" && chmod +x "$bin_dir/pw-loudcomp"
-            _copy "$systemd_user_units_dir/pw-loudcompd.service"
-            _copy "$systemd_user_units_dir/pw-loudcomp-socket@.service"
-            _copy "$systemd_user_units_dir/pw-loudcomp-socket.socket"
+            _copy "$user_bin_dir/pw-loudcomp" && chmod +x "$user_bin_dir/pw-loudcomp"
+            _copy "$man_page_dir/man1/pw-loudcomp.1" "man_pages"
+            _copy "$man_page_dir/man5/pw-loudcomp.5" "man_pages"
+            _copy "$systemd_user_units_dir/pw-loudcompd.service" "systemd"
+            _copy "$systemd_user_units_dir/pw-loudcomp-socket@.service" "systemd"
+            _copy "$systemd_user_units_dir/pw-loudcomp-socket.socket" "systemd"
 
+            mandb --quiet --user-db
 
             if ! grep -- "$HOME/.local/bin" <<< "$PATH" >/dev/null; then
                 trap "printf '\nOperation cancelled.\n'; exit 0" INT TERM
-                printf '%b%s%b not found in %b$PATH%b. Do you want to add it to %b%s%b? [%bY%b/%bn%b] ' "$BLUE" "$bin_dir" "$RESET" "$CYAN" "$RESET" "$MAGENTA" "${SHELL##*/}" "$RESET" "$GREEN" "$RESET" "$RED" "$RESET"
+                printf '%b%s%b not found in %b$PATH%b. Do you want to add it to %b%s%b? [%bY%b/%bn%b] ' "$BLUE" "$user_bin_dir" "$RESET" "$CYAN" "$RESET" "$MAGENTA" "${SHELL##*/}" "$RESET" "$GREEN" "$RESET" "$RED" "$RESET"
                 read answer
 
                 if [[ "$answer" =~ ^[Nn]$ ]]; then
@@ -80,28 +93,29 @@ while true; do
                     case "${SHELL##*/}" in
                         "sh")
                             shell_filepath="$HOME/.profile"
-                            sh -c ". $HOME/.profile"
                         ;;
                         "bash")
                             shell_filepath="$HOME/.bashrc"
-                            bash -c "source $HOME/.bashrc"
                         ;;
                         "zsh")
                             shell_filepath="$HOME/.zshrc"
-                            zsh -c "source $HOME/.zshrc"
                         ;;
                         "fish")
-                            fish -c "fish_add_path $bin_dir"
+                            shell_filepath="$XDG_CONFIG_HOME/fish/config.fish"
                         ;;
                         "")
                         ;;
                     esac
 
                     if [[ -n "${shell_filepath:-}" ]]; then
-                        printf '# These two line were added by pw-loudcomp\nexport PATH="$PATH:$HOME/.local/bin"\n' >> "$shell_filepath"
+                        if [[ "${SHELL##*/}" == "fish" ]]; then
+                            printf '\n# These three lines were added by pw-loudcomp\nset -x PATH "$HOME/.local/bin" $PATH\nset -x MANPATH "$XDG_DATA_HOME/man" $MANPATH\n' >> "$shell_filepath"
+                        else
+                            printf '\n# These three lines were added by pw-loudcomp\nexport PATH="$HOME/.local/bin:$PATH"\nexport MANPATH="$XDG_DATA_HOME/man:$MANPATH"\n' >> "$shell_filepath"
+                        fi
                         $SHELL -c ". "$shell_filepath""
                     fi
-                    printf '%b%s%b %badded%b to %b$PATH%b\n' "$BLUE" "$bin_dir" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET"
+                    printf '%b%s%b %badded%b to %b$PATH%b\n' "$BLUE" "$user_bin_dir" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET"
                 fi
             fi
 
@@ -115,6 +129,7 @@ while true; do
                 systemctl --user daemon-reload
                 [[ -e "$systemd_user_units_dir/pw-loudcompd.service"      ]] && systemctl --user enable pw-loudcompd.service
                 [[ -e "$systemd_user_units_dir/pw-loudcomp-socket.socket" ]] && systemctl --user enable pw-loudcomp-socket.socket
+                printf $'Run \'%bsystemctl --user start pw-loudcompd.service%b\' to start pw-loudcomp.\n' "$MAGENTA" "$RESET"
             fi
 
             exit 0
@@ -126,7 +141,9 @@ while true; do
             [[ -e "$systemd_user_units_dir/pw-loudcompd.service"      ]] && systemctl --user disable pw-loudcompd.service
             [[ -e "$systemd_user_units_dir/pw-loudcomp-socket.socket" ]] && systemctl --user disable pw-loudcomp-socket.socket
 
-            _delete "$bin_dir/pw-loudcomp"
+            _delete "$user_bin_dir/pw-loudcomp"
+            _delete "$man_page_dir/man1/pw-loudcomp.1"
+            _delete "$man_page_dir/man5/pw-loudcomp.5"
             _delete "$systemd_user_units_dir/pw-loudcompd.service"
             _delete "$systemd_user_units_dir/pw-loudcomp-socket@.service"
             _delete "$systemd_user_units_dir/pw-loudcomp-socket.socket"
