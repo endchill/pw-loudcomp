@@ -13,9 +13,6 @@ ExecReload=%h/.local/bin/pw-loudcomp reload
 ExecStop=%h/.local/bin/pw-loudcomp stop-daemon
 Restart=on-failure
 RestartSec=3
-CPUSchedulingPolicy=rr
-CPUSchedulingPriority=50
-Nice=-11
 
 [Install]
 WantedBy=default.target
