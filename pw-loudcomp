@@ -1,32 +1,34 @@
 #!/usr/bin/env bash
 
 set -eu -o pipefail
+shopt -s extglob
 
 trap '_clean_up; exit 1' USR1
 
 
-if [[ "${CLICOLOR_FORCE:-}" -eq 1 ]] || { [[ "${CLICOLOR:-}" -eq 1 ]] && [[ -t 1 ]] }; then
-    RESET="\033[0m"; BOLD="\033[1m"; RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"; BLUE="\033[34m"; MAGENTA="\033[35m"; CYAN="\033[36m"
+if [[ "${CLICOLOR_FORCE:-}" -eq 1 ]] || { [[ "${CLICOLOR:-}" -eq 1 ]] && [[ -t 1 ]]; }; then
+    RESET="\033[0m"; BOLD="\033[1m"; RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"; BLUE="\033[34m"; CYAN="\033[36m"
 else
-    RESET=""; BOLD=""; RED=""; GREEN=""; YELLOW=""; BLUE=""; MAGENTA=""; CYAN=""
+    RESET=""; BOLD=""; RED=""; GREEN=""; YELLOW=""; BLUE=""; CYAN=""
 fi
 
 
 [[ "$EUID" -eq 0 ]] && { printf 'Do %bNOT%b run this script as root.\n' "$RED" "$RESET" >&2; exit 1; }
 
 
-main_pid="$$"
 name="$(basename "$0")"
+is_switch=false
 
-tmp_dir="${TMPDIR:-"/tmp"}/$name"
 runtime_dir="${XDG_RUNTIME_DIR:-"/tmp/user-$UID"}/$name"
-data_dir="${XDG_DATA_HOME:-"$HOME/.local/share"}/$name"
 config_dir="${XDG_CONFIG_HOME:-"$HOME/.config"}/$name"
+data_dir="${XDG_DATA_HOME:-"$HOME/.local/share"}/$name"
 
 socket_filepath="$runtime_dir/state.sock"
 settings_filepath="$config_dir/settings.env"
-ready_filepath="$data_dir/ready.lua"
 state_filepath="$data_dir/state.env"
+ready_filepath="$data_dir/ready.lua"
+get_new_device_id_filepath="$data_dir/get_new_device_id.lua"
+lsp_config_filepath="${XDG_CONFIG_HOME:-"$HOME/.config"}/pipewire/pipewire.conf.d/loudcomp-sink.conf"
 
 
 function _help() {
@@ -35,20 +37,20 @@ ${BOLD}${RED}Usage:${RESET}
     ${GREEN}${name}${RESET} ${YELLOW}<command> [args]${RESET}
 
 ${BOLD}${RED}Commands:${RESET}
-    ${GREEN}start-daemon${RESET}       Starts the daemon if it's not running, ${BOLD}Recommended${RESET} to use systemd service instead
-    ${GREEN}stop-daemon${RESET}        Stops the daemon if it's running, ${BOLD}Recommended${RESET} to use systemd service instead
-    ${GREEN}start-socket${RESET}       Starts the socket if it's not running, ${BOLD}Recommended${RESET} to use systemd socket instead
-    ${GREEN}stop-socket${RESET}        Stops the socket if it's running, ${BOLD}Recommended${RESET} to use systemd socket instead
-    ${GREEN}reload${RESET}             Manualy reloads everything instead of restart the daemon
-    ${GREEN}create-config${RESET}      Manualy creates a config file
+    ${GREEN}start-daemon${RESET}       Starts the daemon if it's not running, ${BOLD}recommended${RESET} to use systemd service instead
+    ${GREEN}stop-daemon${RESET}        Stops  the daemon if it's running,     ${BOLD}recommended${RESET} to use systemd service instead
+    ${GREEN}start-socket${RESET}       Starts the socket if it's not running, ${BOLD}recommended${RESET} to use systemd socket instead
+    ${GREEN}stop-socket${RESET}        Stops  the socket if it's running,     ${BOLD}recommended${RESET} to use systemd socket instead
+    ${GREEN}reload${RESET}             Manually reloads everything instead of restarting the daemon
+    ${GREEN}create-config${RESET}      Manually creates a config file
 
-    ${GREEN}set-input-gain${RESET}     ${YELLOW}<value>${RESET} Sets an input gain value or increase/decrease it
-    ${GREEN}set-volume${RESET}         ${YELLOW}<value>${RESET} Sets a volume value or increase/decrease it
+    ${GREEN}set-input-gain${RESET}     ${YELLOW}<value>${RESET} Sets an input gain value or increases/decreases it
+    ${GREEN}set-volume${RESET}         ${YELLOW}<value>${RESET} Sets a volume value or increases/decreases it
     ${GREEN}set-mute-state${RESET}     ${YELLOW}<state>${RESET} Whether to mute/unmute the output device
     ${GREEN}set-curve-state${RESET}    ${YELLOW}<state>${RESET} Whether to enable/disable the correction curve
 
     ${GREEN}--help, -h${RESET}                    Returns this message
-    ${GREEN}set <property> <raw_value>${RESET}    Directly controls jalv
+    ${GREEN}set <property> <raw_value>${RESET}    Directly sets values to any LSP loud comp symbol parameter
 
 ${BOLD}${RED}Arguments:${RESET}
     ${GREEN}2(+/-)${RESET}             Sets an exact value                        ${CYAN}(volume, input gain)${RESET}
@@ -100,91 +102,32 @@ function _check_config() {
 
 function _create_config() {
     cat << EOF > "$settings_filepath"
-input_gain=0
-# default 0 | Any dBFS
+# See 'man 5 pw-loudcomp' for more infomation
 
-main_listening_volume=94
-# default 94 | any dB SPL
+input_gain=0
+listening_volume=83
 
 processing_mode=1
-# default 1
-#         0 for FFT
-#         1 for IIR
-
 fft_quality=1
-# default 1
-#         0 = "256"
-#         1 = "512"
-#         2 = "1024"
-#         3 = "2048"
-#         4 = "4096"
-#         5 = "8192"
-#         6 = "16384"
-
 iir_approx=2
-# default 2
-#         0 = "Fastest"
-#         1 = "Low"
-#         2 = "Normal"
-#         3 = "High"
-#         4 = "Best"
-
 curve=4
-# default 4
-#         0 = "Flat"
-#         1 = "ISO226-2003"
-#         2 = "Fletcher-Munson"
-#         3 = "Robinson-Dadson"
-#         4 = "ISO226-2023"
 
 is_clipping=0
-# default 0
-#         0 = disabled
-#         1 = enabled
-
 clipping_range=6
-# default 6 | 0-24 dBFS
 
 output_device="auto"
-# output_device="auto"
-# default "auto"
-#         "auto" will automatically choose the default output device
-#         You can force a device by putting the output device name, use 'wpctl list' to get a list of the current available device names "audio/sink"
-
 output_device_fallback="none"
-# default "none"
-#         "none" will disable the fallback
-#         "auto" will automatically choose the default output device
-#         You can set a fallback device by putting the output device node name
 
-
-system_transfer=true
-# default true
-#         Whether to transfer device state from system to script and vice versa
-
+system_transfer=false
 system_fallback=false
-# default false
-#         Whether to allow the script to change the system state when the daemon is not running, useful for keybinds
-
-auto_adjust_volume=true
-# default true
-#         Whether to auto adjust volume when input gain is changed, to remain with almost the same loudness
+auto_adjust_volume=false
+auto_reload=false
+auto_switch=false
 
 highest_input_gain_limit=
-# default no value | any dBFS
-#         A variable to add a upper limit sealing for input gain, no value for no limit
-
 lowest_input_gain_limit=
-# default no value | any dBFS
-#         A variable to add a lower limit floor for input gain, no value for no limit
-
 highest_volume_limit=
-# default no value for 106
-#         A variable to forcely specify an upper limit sealing for volume
-
 lowest_volume_limit=
-# default no value for 17
-#         A variable to forcely specify an upper limit floor for volume
 EOF
 }
 
@@ -203,25 +146,26 @@ function _send_state() {
             --argjson volume                    "$volume"                                     \
             --argjson muteState                 "$mute_state"                                 \
             --argjson curveState                "$curve_state"                                \
-            --argjson listeningVolume           "$((listening_volume_correction+input_gain))" \
+            --argjson listeningVolume           "$listening_volume"                           \
             --arg     highestInputGain          "${highest_input_gain_limit:-N/A}"            \
             --arg     lowestInputGain           "${lowest_input_gain_limit:-N/A}"             \
         '{
-            outputId:                  $outputID,
-            inputGain:                 $inputGain,
-            volume:                    $volume,
-            muteState:                 $muteState,
-            curveState:                $curveState,
-            listeningVolume:           $listeningVolume,
-            highestInputGain:          ($highestInputGain | tonumber? // $highestInputGain),
-            lowestInputGain:           ($lowestInputGain | tonumber? // $lowestInputGain)
+            outputId:                            $outputID,
+            inputGain:                           $inputGain,
+            volume:                              $volume,
+            muteState:                           $muteState,
+            curveState:                          $curveState,
+            listeningVolume:                     $listeningVolume,
+            highestInputGain:                    ($highestInputGain | tonumber? // $highestInputGain),
+            lowestInputGain:                     ($lowestInputGain | tonumber? // $lowestInputGain)
         }' > "$fifo_filepath" &
     done
 }
 
 
 function _set_input_gain() {
-    local previous_input_gain="$(awk '{printf "%.0f\n", $1}' <<< "$input_gain")"
+    local previous_input_gain
+    previous_input_gain="$(awk '{printf "%.0f\n", $1}' <<< "$input_gain")"
 
     if [[ -n "${highest_input_gain_limit:-}" && "$1" -ge "$highest_input_gain_limit" ]]; then
         input_gain="$highest_input_gain_limit"
@@ -246,9 +190,15 @@ function _set_input_gain() {
     fi
 
 
-    printf 'set input %s\n' "$raw_input_gain" >&"${jalv[1]}"
+    pw-cli set-param "$loudcomp_node_id" 2 "{ \"params\": [ \"loudcomp:input\", $raw_input_gain ] }"
     _send_state
     _save_state "raw_input_gain"
+
+    if [[ "$is_custom_input_gain" == true ]]; then
+        sed -i "s|^$custom_input_gain=.*|$custom_input_gain=$input_gain|" "$settings_filepath"
+    else
+        sed -i "s|^input_gain=.*|input_gain=$input_gain|" "$settings_filepath"
+    fi
 }
 
 
@@ -261,10 +211,10 @@ function _set_volume() {
         volume="$1"
     fi
 
-    # raw_volume="$(awk '{printf "%.6f\n", ((($1 / 100) * $2) - $2)}' <<< "$volume $((listening_volume_correction+input_gain))")"
-    raw_volume="$((volume-100))"
+    raw_volume="$(awk '{printf "%.6f", 20 * log(($1 / 100) ^ 1.661) / log(10)}' <<< "$volume")"
+    [[ "$raw_volume" == "-inf" ]] && raw_volume=-83
 
-    printf 'set volume %s\n' "$raw_volume" >&"${jalv[1]}"
+    pw-cli set-param "$loudcomp_node_id" 2 "{ \"params\": [ \"loudcomp:volume\", $raw_volume ] }"
     _send_state
     _save_state "raw_volume"
 }
@@ -326,7 +276,7 @@ function _set_curve_state() {
     fi
 
 
-    printf 'set std %s\n' "$curve_state" >&"${jalv[1]}"
+    pw-cli set-param "$loudcomp_node_id" 2 "{ \"params\": [ \"loudcomp:std\", $curve_state ] }"
     _send_state
     _save_state "curve_state"
 }
@@ -347,7 +297,7 @@ function _socket_handler() {
     exec 3<> "$fifo_filepath"
     cat <&3 &
 
-    printf '_send_state\n' > "$tmp_dir/command_handler"
+    printf '_send_state\n' > "$runtime_dir/command_handler"
     writer_state="$!"
     cat >/dev/null
     kill "$writer_state" 2>/dev/null
@@ -364,25 +314,21 @@ function _stop_socket() {
 
 
 function _connect_nodes() {
-    while read line; do
-        if [[ "$line" == "ready" ]]; then
-            sleep 0.1s
-            pw-link -P "${loopback_node_name}:monitor_FL" "LSP Loudness Compensator:in_l"
-            pw-link -P "${loopback_node_name}:monitor_FR" "LSP Loudness Compensator:in_r"
-            pw-link -P "LSP Loudness Compensator:out_l" "${output_name}:playback_FL"
-            pw-link -P "LSP Loudness Compensator:out_r" "${output_name}:playback_FR"
-            break
-        fi
-    done < <(stdbuf -oL wpexec "$data_dir/ready.lua")
+    # while read -r line; do
+    #     if [[ "$line" == "ready" ]]; then
+    #         sleep 0.1s
+            pw-link -P "${loudcomp_node_description}:output_FL" "${output_name}:playback_FL"
+            pw-link -P "${loudcomp_node_description}:output_FR" "${output_name}:playback_FR"
+            # break
+        # fi
+    # done < <(stdbuf -oL wpexec "$data_dir/ready.lua")
 }
 
 
 function _disconnect_nodes() {
     set +e
-    pw-link -d "${loopback_node_name}:monitor_FL" "LSP Loudness Compensator:in_l" 2>/dev/null
-    pw-link -d "${loopback_node_name}:monitor_FR" "LSP Loudness Compensator:in_r" 2>/dev/null
-    pw-link -d "LSP Loudness Compensator:out_l" "${output_name}:playback_FL" 2>/dev/null
-    pw-link -d "LSP Loudness Compensator:out_r" "${output_name}:playback_FR" 2>/dev/null
+    pw-link -d "${loudcomp_node_description}:output_FL" "${output_name}:playback_FL" 2>/dev/null
+    pw-link -d "${loudcomp_node_description}:output_FR" "${output_name}:playback_FR" 2>/dev/null
     set -e
 }
 
@@ -392,27 +338,103 @@ function _reload_config() {
     source "$state_filepath"
 
 
-    # volume="$(awk '{printf "%.0f\n", ((($1 + $2) / $2) * 100)}' <<< "$raw_volume ${listening_volumes[$listening_volume_index]}")"
-    [[ -z "${highest_volume_limit:-}" || "${highest_volume_limit:-}" -gt 106 ]] && highest_volume_limit=106
-    [[ -z "${lowest_volume_limit:-}"  || "${lowest_volume_limit:-}"  -lt 17  ]] && lowest_volume_limit=17
-    volume="$((raw_volume+100))"
+    [[ -z "${highest_volume_limit:-}" || "${highest_volume_limit:-}" -gt 100 ]] && highest_volume_limit=100
+    [[ -z "${lowest_volume_limit:-}"  || "${lowest_volume_limit:-}"  -lt 0   ]] && lowest_volume_limit=0
+
     [[ "$volume" -gt "$highest_volume_limit" ]] && volume="$highest_volume_limit"
     [[ "$volume" -lt "$lowest_volume_limit"  ]] && volume="$lowest_volume_limit"
-    raw_volume="$((volume-100))"
+
+    raw_volume="$(awk '{printf "%.6f", 20 * log(($1 / 100) ^ 1.661) / log(10)}' <<< "$volume")"
+    [[ "$raw_volume" == "-inf" ]] && raw_volume=-83
+
     _send_state
     _save_state "raw_volume"
 
 
-    if [[ "$input_gain" -ne "$settings_input_gain" ]]; then
-        raw_input_gain="$(awk '{printf "%.6f\n", (10 ^ ($1 / 20))}' <<< "$input_gain")"
-        _set_input_gain "$input_gain"
-        settings_input_gain="$input_gain"
-        _save_state "settings_input_gain"
+    if [[ "$output_device" == "auto" && "$is_switch" == true && "${switch_device:-}" != "$last_output_device" ]]; then
+        output_device="$switch_device"
+        is_switch=false
+    else
+        wpctl set-default "$loudcomp_node_id"
+        wpctl set-volume "$loudcomp_node_id" 1.0
+    fi
+
+    if [[ "$output_device" != "$last_output_device" ]]; then
+        if [[ "$output_device" == "auto" ]]; then
+            eval "$(wpctl list | awk '/audio\/sink.*\*/ {
+                printf "output_name=%s\n", $2
+                printf "output_id=%s\n", $1
+            }')"
+        else
+            if wpctl list | grep "$output_device" >/dev/null; then
+                output_name="$output_device"
+                output_id="$(wpctl list | awk -v output_device="$output_device" '$2 ~ output_device {print $1}')"
+            else
+                if [[ "$output_device_fallback" == "none" ]]; then
+                    printf '%b%s%b device not found.\n' "$RED" "$output_device" "$RESET"
+                    _clean_up
+                    exit 1
+                elif [[ "$output_device_fallback" == "auto" ]]; then
+                    eval "$(wpctl list | awk '/audio\/sink.*\*/ {
+                        printf "output_name=%s\n", $2
+                        printf "output_id=%s\n", $1
+                    }')"
+                else
+                    if wpctl list | grep "$output_device_fallback" >/dev/null; then
+                        output_name="$output_device_fallback"
+                        output_id="$(wpctl list | awk -v output_device_fallback="$output_device_fallback" '$2 ~ output_device_fallback {print $1}')"
+                    else
+                        printf '%b%s%b fallback device not found.\n' "$RED" "$output_device_fallback" "$RESET"
+                        _clean_up
+                        exit 1
+                    fi
+                fi
+            fi
+        fi
+
+        if [[ "$system_transfer" == true ]]; then
+            output_volume="$(awk '{printf "%.2f\n", (10 ^ (($1 + $2) / 60))}' <<< "$raw_volume $input_gain")"
+            wpctl set-volume "$last_output_id" "$output_volume"
+            wpctl set-mute "$last_output_id" "$mute_state"
+        fi
+
+        output_volume="$(wpctl get-volume "$output_id" | awk '{print $2}')"
+        _save_state "output_volume"
+
+
+        if [[ "$system_transfer" == true ]]; then
+            if wpctl get-volume "$output_id" | grep '[MUTED]'; then
+                mute_state=1
+            else
+                mute_state=0
+            fi
+        fi
+
+        last_output_device="$output_name"
+        last_output_id="$output_id"
+        sanitized_name="${output_name//[-.]/_}"
+        custom_input_gain="${sanitized_name}_input_gain"
+
+        wpctl set-default "$loudcomp_node_id"
+        wpctl set-volume "$loudcomp_node_id" 1.0
+        wpctl set-volume "$output_id" 1.0
+        sleep 0.05s
+
+        wpctl set-mute "$output_id" "$mute_state"
     fi
 
 
-    printf 'set input %s\nset mode %s\nset fft %s\nset approx %s\nset std %s\nset hclip %s\nset hcrange %s\nset volume %s\n' \
-    "$raw_input_gain" "$processing_mode" "$fft_quality" "$iir_approx" "$curve" "$is_clipping" "$clipping_range" "$raw_volume" >&"${jalv[1]}"
+    if [[ -v "$custom_input_gain" ]]; then
+        input_gain="${!custom_input_gain}"
+        is_custom_input_gain=true
+    else
+        is_custom_input_gain=false
+    fi
+
+    input_gain="$((input_gain+listening_volume-83))"
+
+
+    pw-cli set-param "$loudcomp_node_id" 2 "{ \"params\": [ \"loudcomp:input\", $raw_input_gain, \"loudcomp:mode\", $processing_mode, \"loudcomp:fft\", $fft_quality, \"loudcomp:approx\", $iir_approx, \"loudcomp:std\", $curve, \"loudcomp:hclip\", $is_clipping, \"loudcomp:hcrange\", $clipping_range, \"loudcomp:volume\", $raw_volume ] }"
 }
 
 
@@ -423,13 +445,35 @@ function _reload() {
 }
 
 
+function _switch() {
+    if [[ "$1" =~ ^[0-9]+$ ]]; then
+        switch_device="$(wpctl list | awk -v output_id="$1" '$1 ~ output_id {print $2}')"
+    else
+        switch_device="$1"
+    fi
+    is_switch=true
+    _reload
+}
+
+
 function _auto_reload() {
     coproc auto_reload {
-        while read -r directory event filename; do
-            if [[ "$event" == "CLOSE_WRITE,CLOSE" ]]; then
-                printf '_reload\n' > "$tmp_dir/command_handler"
+        while read -r dirpath _ filename; do
+            if [[ "${dirpath}${filename}" == "$settings_filepath" ]]; then
+                printf '_reload\n' > "$runtime_dir/command_handler"
             fi
         done < <(inotifywait -q -m -e close_write "$config_dir")
+    }
+}
+
+
+function _auto_switch() {
+    coproc auto_switch {
+        while read -r id; do
+            if [[ -n "$id" ]]; then
+                printf '_switch %d\n' "$id" > "$runtime_dir/command_handler"
+            fi
+        done < <(stdbuf -oL wpexec "$data_dir/get_new_device_id.lua")
     }
 }
 
@@ -440,22 +484,24 @@ function _clean_up() {
     [[ -n "${output_id:-}" ]] && wpctl set-mute "$output_id" 1
 
 
-    (true >&3) 2>/dev/null              && exec 3>&-
-    kill -0 "${jalv_PID:-}" 2>/dev/null && pkill -P "$jalv_PID" && kill "$jalv_PID"
+    (: >&3) 2>/dev/null && exec 3>&-
     kill -0 "${auto_reload_PID:-}" 2>/dev/null && pkill -P "$auto_reload_PID" && kill "$auto_reload_PID"
-    [[ -n "${loopback_node_id:-}" ]]    && pw-cli destroy "$loopback_node_id"
+    kill -0 "${auto_switch_PID:-}" 2>/dev/null && pkill -P "$auto_switch_PID" && kill "$auto_switch_PID"
 
-
-    [[ "$system_transfer" == true ]] && output_volume="$(awk '{printf "%.2f\n", (10 ^ (($1 + $2) / 60))}' <<< "$raw_volume $input_gain")"
 
     if [[ -n "${output_id:-}" ]]; then
-        wpctl set-volume "$output_id" "$output_volume"
+        if [[ "$system_transfer" == true ]]; then
+            output_volume="$(awk '{printf "%.2f\n", (10 ^ (($1 + $2) / 60))}' <<< "$raw_volume $input_gain")"
+            wpctl set-volume "$output_id" "$output_volume"
+            wpctl set-mute "$output_id" "$mute_state"
+        fi
+
         wpctl set-default "$output_id"
-        wpctl set-mute "$output_id" "$mute_state"
     fi
 
+    _disconnect_nodes
 
-    [[ -d "$tmp_dir" ]] && rm -rf "$tmp_dir"/*
+    [[ -d "$runtime_dir" ]] && rm -rf "$runtime_dir"/!(state.sock)
 }
 
 
@@ -465,32 +511,29 @@ function _start_daemon() {
     if [[ -f "$settings_filepath" ]]; then
         source "$settings_filepath"
     else
-        printf 'Config file not found.\n' >&2
+        printf 'Config not found.\n' >&2
         printf $'Did you try running \'%b%s create-config%b\'?\n' >&2  "$RED" "$name" "$RESET"
         exit 1
     fi
 
 
-    [[ ! -e "$tmp_dir"        ]] && mkdir -p "$tmp_dir"
     [[ ! -e "$runtime_dir"    ]] && mkdir -p "$runtime_dir"
     [[ ! -e "$data_dir"       ]] && mkdir -p "$data_dir"
 
     [[ ! -f "$state_filepath" ]] && cat << EOF > "$state_filepath"
 output_volume=
-settings_input_gain=
 mute_state=0
 curve_state=4
 raw_input_gain=
 raw_volume=-47
-listening_volume_index=1
 EOF
 
     [[ ! -f "$ready_filepath" ]] && cat << EOF > "$ready_filepath"
 node_om = ObjectManager {
-  Interest {
-    type = "node",
-    Constraint { "node.name", "equals", "LSP Loudness Compensator" }
-  }
+    Interest {
+        type = "node",
+        Constraint { "node.name", "equals", "$loudcomp_node_description" }
+    }
 }
 
 node_om:connect("object-added", function (om, node)
@@ -500,15 +543,99 @@ end)
 node_om:activate()
 EOF
 
+    [[ ! -f "$get_new_device_id_filepath" ]] && cat << EOF > "$get_new_device_id_filepath"
+local nodes_om = ObjectManager {
+    Interest {
+        type = "node",
+        Constraint { "media.class", "matches", "Audio/Sink", type = "pw-global" },
+        Constraint { "node.description", "!", "$loudcomp_node_description" },
+    }
+}
+
+local metadata_om = ObjectManager {
+    Interest {
+        type = "metadata",
+        Constraint { "metadata.name", "=", "default" },
+    }
+}
+
+local function find_node_id(node_name)
+    for node in nodes_om:iterate() do
+        if node.properties["node.name"] == node_name then
+            return node["bound-id"]
+        end
+    end
+    return nil
+end
+
+metadata_om:connect("object-added", function(om, metadata)
+    metadata:connect("changed", function(m, subject, key, value_type, value)
+        if key == "default.configured.audio.sink" then
+            local ok, parsed = pcall(function() return Json.Raw(value):parse() end)
+            if ok and parsed and parsed.name then
+                local id = find_node_id(parsed.name)
+                if id then
+                    print(id)
+                end
+            end
+        end
+    end)
+end)
+
+nodes_om:activate()
+metadata_om:activate()
+EOF
+
+    [[ ! -f "$lsp_config_filepath" ]] && cat << EOF > "$lsp_config_filepath" && restart_pipewire=true
+context.modules = [
+    { name = libpipewire-module-filter-chain
+      args = {
+          node.description = "LSP Loudness Compensator"
+          media.name = "lsp-loudness-compensator"
+          filter.graph = {
+              nodes = [
+                  {
+                      type = lv2
+                      name = loudcomp
+                      plugin = "http://lsp-plug.in/plugins/lv2/loud_comp_stereo"
+                  }
+              ]
+          }
+          capture.props = {
+              node.name = "effect_input.loudcomp"
+              media.class = "Audio/Sink"
+              channelmix.lock-volumes = true
+              audio.channels = 2
+              audio.position = [ FL FR ]
+          }
+          playback.props = {
+              node.name = "effect_output.loudcomp"
+              channelmix.lock-volumes = true
+              node.autoconnect = false
+              node.passive = true
+              audio.channels = 2
+              audio.position = [ FL FR ]
+          }
+      }
+    }
+]
+EOF
+
+
+    sed -i 's/^# //' "$lsp_config_filepath"
+
+    if [[ "${restart_pipewire:-}" == true ]]; then
+        if systemctl --user list-unit-files pipewire-pulse.service >/dev/null; then
+            systemctl --user restart pipewire.service pipewire-pulse.service wireplumber.service
+            sleep 8s
+        else
+            systemctl --user restart pipewire.service wireplumber.service
+            sleep 8s
+        fi
+    fi
 
     source "$settings_filepath"
     source "$state_filepath"
-
-
-    listening_volume_correction="$((listening_volume-input_gain))"
-    loopback_node_description="Pipewire Loudness Compensator Sink"
-    loopback_node_name="${loopback_node_description// /-}"
-    loopback_node_name="${loopback_node_name,,}"
 
 
     if [[ "$output_device" == "auto" ]]; then
@@ -544,10 +671,24 @@ EOF
     fi
 
 
-    if [[ "$output_name" == "$loopback_node_name" ]] then
-        printf 'The default output is the loopback, cannot process.\n' >&2
-        exit 1
+    last_output_device="$output_name"
+    last_output_id="$output_id"
+    sanitized_name="${output_name//[-.]/_}"
+    custom_input_gain="${sanitized_name}_input_gain"
+
+    if [[ -v "$custom_input_gain" ]]; then
+        input_gain="${!custom_input_gain}"
+        is_custom_input_gain=true
+    else
+        is_custom_input_gain=false
     fi
+
+    input_gain="$((input_gain+listening_volume-83))"
+
+
+    loudcomp_node_description="LSP Loudness Compensator"
+    loudcomp_node_name="${loudcomp_node_description// /-}"
+    loudcomp_node_name="${loudcomp_node_name,,}"
 
 
     output_volume="$(wpctl get-volume "$output_id" | awk '{print $2}')"
@@ -564,74 +705,49 @@ EOF
 
 
     wpctl set-mute "$output_id" 1
-    sleep 0.05s
 
 
-    if [[ "$input_gain" -eq "$settings_input_gain" ]]; then
-        input_gain="$(awk '{printf "%.0f\n", (20 * (log($1) / log(10)))}' <<< "$raw_input_gain")"
+    if [[ "$system_transfer" == true ]]; then
+        raw_volume="$(awk '{printf "%.0f\n", ((60 * ( log($2) / log(10))) - $1)}' <<< "$input_gain $output_volume")"
     else
-        raw_input_gain="$(awk '{printf "%.6f\n", (10 ^ ($1 / 20))}' <<< "$input_gain")"
-        _save_state "raw_input_gain"
-        settings_input_gain="$input_gain"
-        _save_state "settings_input_gain"
-
+        raw_volume="$(awk '{printf "%.0f\n", $1}' <<< "$raw_volume")"
     fi
 
-
-    [[ "$system_transfer" == true ]] && raw_volume="$(awk '{printf "%.0f\n", ((60 * ( log($2) / log(10))) - $1)}' <<< "$input_gain $output_volume")"
-    [[ "$raw_volume" == "-inf"    ]] && raw_volume=-83
-    # volume="$(awk '{printf "%.0f\n", ((($1 + $2) / $2) * 100)}' <<< "$raw_volume ${listening_volumes[$listening_volume_index]}")"
-    volume="$((raw_volume+100))"
-
-    [[ -z "${highest_volume_limit:-}" || "${highest_volume_limit:-}" -gt 106 ]] && highest_volume_limit=106
-    [[ -z "${lowest_volume_limit:-}"  || "${lowest_volume_limit:-}"  -lt 17  ]] && lowest_volume_limit=17
-    [[ "$volume" -gt "$highest_volume_limit" ]] && volume="$highest_volume_limit"
-    [[ "$volume" -lt "$lowest_volume_limit"  ]] && volume="$lowest_volume_limit"
-    raw_volume="$((volume-100))"
+    [[ "$raw_volume" == "-inf" ]] && raw_volume=-83
 
 
-    mkfifo "$tmp_dir/command_handler"
-    exec 3<> "$tmp_dir/command_handler"
+    volume="$(awk '{printf "%.0f", 100 * (10 ^ ($1 / 33.22))}' <<< "$raw_volume")"
+    [[ -z "${highest_volume_limit:-}" || "${highest_volume_limit:-}" -gt 100 ]] && highest_volume_limit=100
+    [[ -z "${lowest_volume_limit:-}"  || "${lowest_volume_limit:-}"  -lt 0   ]] && lowest_volume_limit=0
+    [[ "$volume" -gt "$highest_volume_limit" ]] && { volume="$highest_volume_limit"; raw_volume="$(awk '{printf "%.6f", 20 * log(($1 / 100) ^ 1.661) / log(10)}' <<< "$volume")"; }
+    [[ "$volume" -lt "$lowest_volume_limit"  ]] && { volume="$lowest_volume_limit"; raw_volume="$(awk '{printf "%.6f", 20 * log(($1 / 100) ^ 1.661) / log(10)}' <<< "$volume")"; }
 
 
-    pw-cli create-node adapter '{
-        object.linger    = true
-        factory.name     = support.null-audio-sink
-        node.name        = "'"$loopback_node_name"'"
-        node.description = "'"$loopback_node_description"'"
-        audio.position   = [ FL FR ]
-        media.class      = Audio/Sink
-    }'
+    mkfifo "$runtime_dir/command_handler"
+    exec 3<> "$runtime_dir/command_handler"
 
-    loopback_node_id="$(wpctl list | awk -v loopback_node_name="$loopback_node_name" '$2 == loopback_node_name {print $1}')"
+    loudcomp_node_id="$(pw-dump | jq -r '.[] | select(.type=="PipeWire:Interface:Node") | select(.info.props["node.name"]=="effect_input.loudcomp") | .info.props["object.serial"]')"
 
-
-    coproc jalv {
-        jalv -x -n "LSP Loudness Compensator" "http://lsp-plug.in/plugins/lv2/loud_comp_stereo" 2>/dev/null
-        wait
-        if [[ "$?" -eq 11 ]]; then
-            printf 'Failed to start jalv, process with the same name already exists.\n' >&2
-            kill -USR1 "$main_pid"
-        fi
-    }
 
     _connect_nodes
 
 
-    printf 'set input %s\nset mode %s\nset fft %s\nset approx %s\nset std %s\nset hclip %s\nset hcrange %s\nset volume %s\n' \
-    "$raw_input_gain" "$processing_mode" "$fft_quality" "$iir_approx" "$curve" "$is_clipping" "$clipping_range" "$raw_volume" >&"${jalv[1]}"
+    pw-cli set-param "$loudcomp_node_id" 2 "{ \"params\": [ \"loudcomp:input\", $raw_input_gain, \"loudcomp:mode\", $processing_mode, \"loudcomp:fft\", $fft_quality, \"loudcomp:approx\", $iir_approx, \"loudcomp:std\", $curve, \"loudcomp:hclip\", $is_clipping, \"loudcomp:hcrange\", $clipping_range, \"loudcomp:volume\", $raw_volume ] }"
 
 
-    wpctl set-default "$loopback_node_id"
-    wpctl set-volume "$loopback_node_id" 1.0
+    wpctl set-default "$loudcomp_node_id"
+    wpctl set-volume "$loudcomp_node_id" 1.0
     wpctl set-volume "$output_id" 1.0
+    sleep 0.05s
+
     wpctl set-mute "$output_id" "$mute_state"
 
 
-    _auto_reload
+    [[ "$auto_reload" == true ]] && _auto_reload
+    [[ "$auto_switch" == true ]] && _auto_switch
 
 
-    touch "$tmp_dir/active"
+    touch "$runtime_dir/pw-loudcomp.lock"
     _send_state
 
     systemd-notify READY=1
@@ -639,9 +755,9 @@ EOF
     while read -r cmd arg1 arg2; do
         case "$cmd" in
             "set")
-                printf 'set %s %s\n' "$arg1" "$arg2" >&"${jalv[1]}"
+                pw-cli set-param "$loudcomp_node_id" 2 "{ \"params\": [ \"loudcomp:$arg1\", $arg2 ] }"
             ;;
-            "_set_relative_input_gain"|"_set_relative_volume"|"_set_input_gain"|"_set_relative_input_gain"|"_set_volume"|"_set_relative_volume"|"_set_mute_state"|"_set_curve_state"|"_stop_daemon"|"_start_socket"|"_stop_socket"|"_send_state"|"_reload")
+            "_set_relative_input_gain"|"_set_relative_volume"|"_set_input_gain"|"_set_volume"|"_set_mute_state"|"_set_curve_state"|"_stop_daemon"|"_start_socket"|"_stop_socket"|"_send_state"|"_reload"|"_switch")
                 ${cmd} "$arg1" "$arg2"
             ;;
             *)
@@ -660,7 +776,7 @@ function _stop_daemon() {
 
 case "${1:-}" in
     "start-daemon")
-        if [[ -f "$tmp_dir/active" ]]; then
+        if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
             printf 'Operation failed.\n' >&2
             printf 'Daemon is already running.\n' >&2
             exit 1
@@ -669,17 +785,13 @@ case "${1:-}" in
         fi
     ;;
     "stop-daemon")
-        if [[ -f "$tmp_dir/active" ]]; then
-            printf '_stop_daemon\n' > "$tmp_dir/command_handler"
-            while read -r directory event filename; do
-                if [[ "$filename" == "active" ]]; then
+        if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
+            printf '_stop_daemon\n' > "$runtime_dir/command_handler"
+            while read -r _ _ filename; do
+                if [[ "$filename" == "pw-loudcomp.lock" ]]; then
                     exit 0
                 fi
-            done < <(inotifywait -q -m -e delete "$tmp_dir")
-            # source "$settings_filepath"
-            # source "$state_filepath"
-            # _clean_up
-            # exit 0
+            done < <(inotifywait -q -m -e delete "$runtime_dir")
         else
             printf 'Operation failed.\n' >&2
             _is_running_message
@@ -687,7 +799,7 @@ case "${1:-}" in
         fi
     ;;
     "start-socket")
-        if [[ ! -f "$tmp_dir/active" ]]; then
+        if [[ ! -f "$runtime_dir/pw-loudcomp.lock" ]]; then
             _is_running_message
             exit 1
         elif [[ -S "$socket_filepath" ]]; then
@@ -695,7 +807,7 @@ case "${1:-}" in
             printf 'Socket is already socket running.\n' >&2
             exit 1
         else
-            printf '_start_socket\n' > "$tmp_dir/command_handler"
+            printf '_start_socket\n' > "$runtime_dir/command_handler"
             exit 0
         fi
     ;;
@@ -704,7 +816,7 @@ case "${1:-}" in
     ;;
     "stop-socket")
         if [[ -f "$runtime_dir/socket_pid" ]]; then
-            printf '_stop_socket\n' > "$tmp_dir/command_handler"
+            printf '_stop_socket\n' > "$runtime_dir/command_handler"
             exit 0
         else
             printf 'Operation failed.\n' >&2
@@ -713,8 +825,8 @@ case "${1:-}" in
         fi
     ;;
     "reload")
-        if [[ -f "$tmp_dir/active" ]]; then
-            printf '_reload\n' > "$tmp_dir/command_handler"
+        if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
+            printf '_reload\n' > "$runtime_dir/command_handler"
             exit 0
         else
             _is_running_message
@@ -726,11 +838,11 @@ case "${1:-}" in
             printf $'You have to specify a value.\n' >&2
             printf $'Try %b\'%s --help\'%b for more information.\n' "$RED" "$name" "$RESET" >&2
             exit 1
-        elif [[ -f "$tmp_dir/active" ]]; then
+        elif [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
             if [[ "$2" =~ ^([0-9]+)%([+-])$ ]]; then
-                printf '_set_relative_input_gain %s %s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" > "$tmp_dir/command_handler"
+                printf '_set_relative_input_gain %s %s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" > "$runtime_dir/command_handler"
             elif [[ "$2" =~ ^(-?[0-9]+)$ ]]; then
-                printf '_set_input_gain %s\n' "$2" > "$tmp_dir/command_handler"
+                printf '_set_input_gain %s\n' "$2" > "$runtime_dir/command_handler"
             else
                 printf $'Invalid format: \'%b%s%b\'\n' "$RED" "$2" "$RESET" >&2
                 printf $'Try %b\'%s --help\'%b for more information.\n' "$RED" "$name" "$RESET" >&2
@@ -748,19 +860,19 @@ case "${1:-}" in
             printf $'Try %b\'%s --help\'%b for more information.\n' "$RED" "$name" "$RESET" >&2
             exit 1
         elif [[ "$2" =~ ^([0-9]+)%([+-])$ ]]; then
-            if [[ -f "$tmp_dir/active" ]]; then
-                printf "_set_relative_volume %s %s\n" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" > "$tmp_dir/command_handler"
+            if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
+                printf "_set_relative_volume %s %s\n" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" > "$runtime_dir/command_handler"
             elif [[ "${system_fallback:-}" == true ]]; then
-                wpctl set-volume @DEFAULT_AUDIO_SINK@ "$2"
+                wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ "$2"
             else
                 _is_running_message
                 exit 1
             fi
         elif [[ "$2" =~ ^([0-9]+)$ ]]; then
-            if [[ -f "$tmp_dir/active" ]]; then
-                printf "_set_volume %s\n" "$2" > "$tmp_dir/command_handler"
+            if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
+                printf "_set_volume %s\n" "$2" > "$runtime_dir/command_handler"
             elif [[ "${system_fallback:-}" == true ]]; then
-                wpctl set-volume @DEFAULT_AUDIO_SINK@ "$2"
+                wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ "$2"
             else
                 _is_running_message
                 exit 1
@@ -773,7 +885,7 @@ case "${1:-}" in
     ;;
     "set-mute-state")
         [[ -n "$settings_filepath" ]] && source "$settings_filepath"
-        if [[ -f "$tmp_dir/active" ]] || [[ "${system_fallback:-}" == true ]]; then
+        if [[ -f "$runtime_dir/pw-loudcomp.lock" ]] || [[ "${system_fallback:-}" == true ]]; then
             if [[ -z "${2:-}" ]]; then
                 printf 'You have to specify a value.\n' >&2
                 exit 1
@@ -781,8 +893,8 @@ case "${1:-}" in
                 printf $'Invalid format: \'%b%s%b\'\n' "$RED" "$2" "$RESET" >&2
                 _try_message
                 exit 1
-            elif [[ -f "$tmp_dir/active" ]]; then
-                printf '_set_mute_state %s\n' "$2" > "$tmp_dir/command_handler"
+            elif [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
+                printf '_set_mute_state %s\n' "$2" > "$runtime_dir/command_handler"
                 exit 0
             else
                 wpctl set-mute @DEFAULT_AUDIO_SINK@ "$2"
@@ -798,8 +910,8 @@ case "${1:-}" in
             printf 'You have to specify a value.\n' >&2
             exit 1
         elif [[ "$2" =~ ^(1|0|toggle)$ ]]; then
-            if [[ -f "$tmp_dir/active" ]]; then
-                printf '_set_curve_state %s\n' "$2" > "$tmp_dir/command_handler"
+            if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
+                printf '_set_curve_state %s\n' "$2" > "$runtime_dir/command_handler"
                 exit 0
             else
                 _is_running_message
@@ -817,8 +929,8 @@ case "${1:-}" in
             _try_message
             exit 1
         else
-            if [[ -f "$tmp_dir/active" ]]; then
-                printf 'set %s %s\n' "$2" "$3" > "$tmp_dir/command_handler"
+            if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
+                printf 'set %s %s\n' "$2" "$3" > "$runtime_dir/command_handler"
             else
                 _is_running_message
                 exit 1
