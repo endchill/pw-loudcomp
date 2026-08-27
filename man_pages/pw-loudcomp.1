@@ -2,63 +2,63 @@
 .\"
 .TH "pw\-loudcomp" "1" "2026\-08\-22" ""
 .SH NAME
-pw\-loudcomp \- Loudness compensation for Pipewire
+pw\-loudcomp \- Loudness compensation for PipeWire
 .SH SYNOPSIS
 \f[B]pw\-loudcomp\f[R] <command>
 .SH DESCRIPTION
-pw\-loudcomp is a simple Bash script that automate setting\-up,
-connecting, and adjusting volume of LSP Loudness Compensation.
+pw\-loudcomp is a simple Bash script that automates setting up,
+connecting, and adjusting the volume of LSP Loudness Compensation.
 .SH COMMANDS
 .TP
 \f[B]start\-daemon\f[R]
-Starts the daemon if it\(cqs not running, recommended to use systemd
-service instead.
+Starts the daemon if it is not running; it is recommended to use the
+systemd service instead.
 .TP
 \f[B]stop\-daemon\f[R]
-Stops the daemon if it\(cqs running, recommended to use systemd service
-instead.
+Stops the daemon if it is running; it is recommended to use the systemd
+service instead.
 .TP
 \f[B]start\-socket\f[R]
-Starts the socket if it\(cqs not running, recommended to use systemd
-socket instead.
+Starts the socket if it is not running; it is recommended to use the
+systemd socket instead.
 .TP
 \f[B]stop\-socket\f[R]
-Stops the socket if it\(cqs running, recommended to use systemd socket
-instead.
+Stops the socket if it is running; it is recommended to use the systemd
+socket instead.
 .TP
 \f[B]reload\f[R]
-Manually reloads config instead of restarting the daemon.
+Manually reloads the configuration instead of restarting the daemon.
 .TP
 \f[B]create\-config\f[R]
-Manually creates a config file.
+Manually creates a configuration file.
 .TP
 \f[B]set\-input\-gain\f[R] <value>
-Sets an input gain value or increases/decreases it.
+Sets an input gain value or increases or decreases it.
 .TP
 \f[B]set\-volume\f[R] <value>
-Sets a volume value or increases/decreases it.
+Sets a volume value or increases or decreases it.
 .TP
 \f[B]set\-mute\-state\f[R] <state>
-Whether to mute/unmute the output device.
+Specifies whether to mute or unmute the output device.
 .TP
 \f[B]set\-curve\-state\f[R] <state>
-Whether to enable/disable the correction curve.
+Specifies whether to enable or disable the correction curve.
 .TP
 \f[B]\-h\f[R], \f[B]\(enhelp\f[R]
-Return help message.
+Displays the help message.
 .TP
 \f[B]set\f[R] <property> <raw_value>
-Directly sets values to any LSP loud comp symbol parameter.
+Directly sets values for any LSP loudness compensation symbol parameter.
 .SH ARGUMENTS
 .TP
 \f[B]2(+/\-)\f[R]
-Sets an exact value, for set\-volume and set\-input\-gain.
+Sets an exact value for set\-volume and set\-input\-gain.
 .TP
 \f[B]2%(+/\-)\f[R]
-Increases/decreases relative to the value, for set\-volume and
+Increases or decreases the value relatively for set\-volume and
 set\-input\-gain.
 .TP
 \f[B]1/0/toggle\f[R]
-Whether to set a state, for set\-mute and set\-curve.
+Sets a state for set\-mute\-state and set\-curve\-state.
 .SH SEE ALSO
 \f[B]pw\-loudcomp\f[R](5)

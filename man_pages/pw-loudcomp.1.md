@@ -6,7 +6,7 @@ date: 2026-08-22
 
 # NAME
 
-pw-loudcomp - Loudness compensation for Pipewire
+pw-loudcomp - Loudness compensation for PipeWire
 
 # SYNOPSIS
 
@@ -14,56 +14,56 @@ pw-loudcomp - Loudness compensation for Pipewire
 
 # DESCRIPTION
 
-pw-loudcomp is a simple Bash script that automate setting-up, connecting, and adjusting volume of LSP Loudness Compensation.
+pw-loudcomp is a simple Bash script that automates setting up, connecting, and adjusting the volume of LSP Loudness Compensation.
 
 # COMMANDS
 
 **start-daemon**
-:   Starts the daemon if it's not running, recommended to use systemd service instead.
+:   Starts the daemon if it is not running; it is recommended to use the systemd service instead.
 
 **stop-daemon**
-:   Stops the daemon if it's running, recommended to use systemd service instead.
+:   Stops the daemon if it is running; it is recommended to use the systemd service instead.
 
 **start-socket**
-:   Starts the socket if it's not running, recommended to use systemd socket instead.
+:   Starts the socket if it is not running; it is recommended to use the systemd socket instead.
 
 **stop-socket**
-:   Stops the socket if it's running, recommended to use systemd socket instead.
+:   Stops the socket if it is running; it is recommended to use the systemd socket instead.
 
 **reload**
-:   Manually reloads config instead of restarting the daemon.
+:   Manually reloads the configuration instead of restarting the daemon.
 
 **create-config**
-:   Manually creates a config file.
+:   Manually creates a configuration file.
 
 **set-input-gain** \<value\>
-:   Sets an input gain value or increases/decreases it.
+:   Sets an input gain value or increases or decreases it.
 
 **set-volume** \<value\>
-:   Sets a volume value or increases/decreases it.
+:   Sets a volume value or increases or decreases it.
 
 **set-mute-state** \<state\>
-:   Whether to mute/unmute the output device.
+:   Specifies whether to mute or unmute the output device.
 
 **set-curve-state** \<state\>
-:   Whether to enable/disable the correction curve.
+:   Specifies whether to enable or disable the correction curve.
 
 **-h**, **--help**
-:   Return help message.
+:   Displays the help message.
 
 **set** \<property\> \<raw_value\>
-:   Directly sets values to any LSP loud comp symbol parameter.
+:   Directly sets values for any LSP loudness compensation symbol parameter.
 
 # ARGUMENTS
 
 **2(+/-)**
-:   Sets an exact value, for set-volume and set-input-gain.
+:   Sets an exact value for set-volume and set-input-gain.
 
 **2%(+/-)**
-:   Increases/decreases relative to the value, for set-volume and set-input-gain.
+:   Increases or decreases the value relatively for set-volume and set-input-gain.
 
 **1/0/toggle**
-:   Whether to set a state, for set-mute and set-curve.
+:   Sets a state for set-mute-state and set-curve-state.
 
 # SEE ALSO
 

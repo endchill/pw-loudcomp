@@ -33,30 +33,26 @@ lsp_config_filepath="${XDG_CONFIG_HOME:-"$HOME/.config"}/pipewire/pipewire.conf.
 
 function _help() {
     printf '%b\n' "$(cat << EOF
-${BOLD}${RED}Usage:${RESET}
-    ${GREEN}${name}${RESET} ${YELLOW}<command> [args]${RESET}
-
 ${BOLD}${RED}Commands:${RESET}
-    ${GREEN}start-daemon${RESET}       Starts the daemon if it's not running, ${BOLD}recommended${RESET} to use systemd service instead
-    ${GREEN}stop-daemon${RESET}        Stops  the daemon if it's running,     ${BOLD}recommended${RESET} to use systemd service instead
-    ${GREEN}start-socket${RESET}       Starts the socket if it's not running, ${BOLD}recommended${RESET} to use systemd socket instead
-    ${GREEN}stop-socket${RESET}        Stops  the socket if it's running,     ${BOLD}recommended${RESET} to use systemd socket instead
-    ${GREEN}reload${RESET}             Manually reloads everything instead of restarting the daemon
-    ${GREEN}create-config${RESET}      Manually creates a config file
+    ${GREEN}start-daemon${RESET}                Starts the daemon if it is not running; it is recommended to use the systemd service instead.
+    ${GREEN}stop-daemon${RESET}                 Stops the daemon if it is running; it is recommended to use the systemd service instead.
+    ${GREEN}start-socket${RESET}                Starts the socket if it is not running; it is recommended to use the systemd socket instead.
+    ${GREEN}stop-socket${RESET}                 Stops the socket if it is running; it is recommended to use the systemd socket instead.
+    ${GREEN}reload${RESET}                      Manually reloads the configuration instead of restarting the daemon.
+    ${GREEN}create-config${RESET}               Manually creates a configuration file.
 
-    ${GREEN}set-input-gain${RESET}     ${YELLOW}<value>${RESET} Sets an input gain value or increases/decreases it
-    ${GREEN}set-volume${RESET}         ${YELLOW}<value>${RESET} Sets a volume value or increases/decreases it
-    ${GREEN}set-mute-state${RESET}     ${YELLOW}<state>${RESET} Whether to mute/unmute the output device
-    ${GREEN}set-curve-state${RESET}    ${YELLOW}<state>${RESET} Whether to enable/disable the correction curve
+    ${GREEN}set-input-gain${RESET}   ${YELLOW}<value>${RESET}    Sets an input gain value or increases or decreases it.
+    ${GREEN}set-volume${RESET}       ${YELLOW}<value>${RESET}    Sets a volume value or increases or decreases it.
+    ${GREEN}set-mute-state${RESET}   ${YELLOW}<state>${RESET}    Specifies whether to mute or unmute the output device.
+    ${GREEN}set-curve-state${RESET}  ${YELLOW}<state>${RESET}    Specifies whether to enable or disable the correction curve.
 
-    ${GREEN}--help, -h${RESET}                    Returns this message
-    ${GREEN}set <property> <raw_value>${RESET}    Directly sets values to any LSP loud comp symbol parameter
+    ${GREEN}-h, --help${RESET}                  Displays this help message.
+    ${GREEN}set <property> <raw_value>${RESET}  Directly sets values for any LSP loudness compensation symbol parameter.
 
 ${BOLD}${RED}Arguments:${RESET}
-    ${GREEN}2(+/-)${RESET}             Sets an exact value                        ${CYAN}(volume, input gain)${RESET}
-    ${GREEN}2%(+/-)${RESET}            Increases/decreases relative to the value  ${CYAN}(volume, input gain)${RESET}
-    ${GREEN}1/0/toggle${RESET}         Whether to set a state                     ${CYAN}(mute, curve)${RESET}
-
+    ${GREEN}2(+/-)${RESET}                      Sets an exact value                        ${CYAN}(volume, input gain)${RESET}
+    ${GREEN}2%(+/-)${RESET}                     Increases or decreases the value relatively${CYAN}(volume, input gain)${RESET}
+    ${GREEN}1/0/toggle${RESET}                  Sets a state                               ${CYAN}(mute-state, curve-state)${RESET}
 EOF
 )"
 }
@@ -106,6 +102,7 @@ function _create_config() {
 
 input_gain=0
 listening_volume=83
+# volume_curve_exponent=2.5
 
 processing_mode=1
 fft_quality=1
@@ -165,7 +162,7 @@ function _send_state() {
 
 function _set_input_gain() {
     local previous_input_gain
-    previous_input_gain="$(awk '{printf "%.0f\n", $1}' <<< "$input_gain")"
+    previous_input_gain="$(awk -v input_gain="$input_gain" 'BEGIN {printf "%.0f\n", input_gain}')"
 
     if [[ -n "${highest_input_gain_limit:-}" && "$1" -ge "$highest_input_gain_limit" ]]; then
         input_gain="$highest_input_gain_limit"
@@ -175,7 +172,7 @@ function _set_input_gain() {
         input_gain="$1"
     fi
 
-    raw_input_gain=$(awk '{printf "%.6f", (10 ^ ($1 / 20))}' <<< "$input_gain")
+    raw_input_gain=$(awk -v input_gain="$input_gain" 'BEGIN {printf "%.6f", (10 ^ (input_gain} / 20))}')
 
 
     if [[ "$auto_adjust_volume" == true ]]; then
@@ -211,7 +208,7 @@ function _set_volume() {
         volume="$1"
     fi
 
-    raw_volume="$(awk '{printf "%.6f", 20 * log(($1 / 100) ^ 1.661) / log(10)}' <<< "$volume")"
+    raw_volume="$(awk -v volume="$volume" -v vce="$volume_curve_exponent" 'BEGIN {printf "%.6f", 20 * log((volume / 100) ^ vce) / log(10)}')"
     [[ "$raw_volume" == "-inf" ]] && raw_volume=-83
 
     pw-cli set-param "$loudcomp_node_id" 2 "{ \"params\": [ \"loudcomp:volume\", $raw_volume ] }"
@@ -344,7 +341,7 @@ function _reload_config() {
     [[ "$volume" -gt "$highest_volume_limit" ]] && volume="$highest_volume_limit"
     [[ "$volume" -lt "$lowest_volume_limit"  ]] && volume="$lowest_volume_limit"
 
-    raw_volume="$(awk '{printf "%.6f", 20 * log(($1 / 100) ^ 1.661) / log(10)}' <<< "$volume")"
+    raw_volume="$(awk -v volume="$volume" -v vce="$volume_curve_exponent" 'BEGIN {printf "%.6f", 20 * log((volume / 100) ^ vce) / log(10)}')"
     [[ "$raw_volume" == "-inf" ]] && raw_volume=-83
 
     _send_state
@@ -393,7 +390,7 @@ function _reload_config() {
         fi
 
         if [[ "$system_transfer" == true ]]; then
-            output_volume="$(awk '{printf "%.2f\n", (10 ^ (($1 + $2) / 60))}' <<< "$raw_volume $input_gain")"
+            output_volume="$(awk -v input_gain="$input_gain" -v raw_volume="$raw_volume" 'BEGIN {printf "%.2f\n", (10 ^ ((input_gain + raw_volume) / 60))}')"
             wpctl set-volume "$last_output_id" "$output_volume"
             wpctl set-mute "$last_output_id" "$mute_state"
         fi
@@ -491,7 +488,7 @@ function _clean_up() {
 
     if [[ -n "${output_id:-}" ]]; then
         if [[ "$system_transfer" == true ]]; then
-            output_volume="$(awk '{printf "%.2f\n", (10 ^ (($1 + $2) / 60))}' <<< "$raw_volume $input_gain")"
+            output_volume="$(awk -v input_gain="$input_gain" -v raw_volume="$raw_volume" 'BEGIN {printf "%.2f\n", (10 ^ ((input_gain + raw_volume) / 60))}')"
             wpctl set-volume "$output_id" "$output_volume"
             wpctl set-mute "$output_id" "$mute_state"
         fi
@@ -708,19 +705,19 @@ EOF
 
 
     if [[ "$system_transfer" == true ]]; then
-        raw_volume="$(awk '{printf "%.0f\n", ((60 * ( log($2) / log(10))) - $1)}' <<< "$input_gain $output_volume")"
+        raw_volume="$(awk -v output_volume="$output_volume" -v input_gain="$input_gain" 'BEGIN {printf "%.0f\n", ((60 * ( log(output_volume) / log(10))) - input_gain)}')"
     else
-        raw_volume="$(awk '{printf "%.0f\n", $1}' <<< "$raw_volume")"
+        raw_volume="$(awk -v raw_volume="$raw_volume" 'BEGIN {printf "%.0f\n", raw_volume')"
     fi
 
     [[ "$raw_volume" == "-inf" ]] && raw_volume=-83
 
 
-    volume="$(awk '{printf "%.0f", 100 * (10 ^ ($1 / 33.22))}' <<< "$raw_volume")"
+    volume="$(awk -v raw_volume="$raw_volume" -v vce="$volume_curve_exponent" 'BEGIN {printf "%.0f", 100 * (10 ^ (raw_volume / (20 * vce)))}')"
     [[ -z "${highest_volume_limit:-}" || "${highest_volume_limit:-}" -gt 100 ]] && highest_volume_limit=100
     [[ -z "${lowest_volume_limit:-}"  || "${lowest_volume_limit:-}"  -lt 0   ]] && lowest_volume_limit=0
-    [[ "$volume" -gt "$highest_volume_limit" ]] && { volume="$highest_volume_limit"; raw_volume="$(awk '{printf "%.6f", 20 * log(($1 / 100) ^ 1.661) / log(10)}' <<< "$volume")"; }
-    [[ "$volume" -lt "$lowest_volume_limit"  ]] && { volume="$lowest_volume_limit"; raw_volume="$(awk '{printf "%.6f", 20 * log(($1 / 100) ^ 1.661) / log(10)}' <<< "$volume")"; }
+    [[ "$volume" -gt "$highest_volume_limit" ]] && { volume="$highest_volume_limit"; raw_volume="$(awk -v volume="$volume" -v vce="$volume_curve_exponent" 'BEGIN {printf "%.6f", 20 * log((volume / 100) ^ vce) / log(10)}')"; }
+    [[ "$volume" -lt "$lowest_volume_limit"  ]] && { volume="$lowest_volume_limit"; raw_volume="$(awk -v volume="$volume" -v vce="$volume_curve_exponent" 'BEGIN {printf "%.6f", 20 * log((volume / 100) ^ vce) / log(10)}')"; }
 
 
     mkfifo "$runtime_dir/command_handler"

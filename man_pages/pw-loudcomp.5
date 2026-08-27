@@ -6,25 +6,35 @@ pw\-loudcomp \- settings file for pw\-loudcomp
 .SH SYNOPSIS
 \f[B]$XDG_CONFIG_HOME/pw\-loudcomp/settings.env\f[R]
 .SH DESCRIPTION
-The settings file of pw\-loudcomp.
+The settings file for pw\-loudcomp.
 .SH VARIABLES
 .TP
 \f[B]input_gain\f[R] <integer> in dB
-Controls the amount of input gain to achieve listening volume.
+Controls the amount of input gain to achieve the listening volume.
 .TP
 \f[B]listening_volume\f[R] <integer> in dB SPL
-The volume level when correcting too, it can be set to \f[I]almost\f[R]
-any volume.
+The volume level to correct to; it can be set to \f[I]almost\f[R] any
+volume.
+.TP
+\f[B]volume_curve_exponent\f[R] <integer>
+This setting controls how much the volume changes to feel natural;
+Windows uses 2, while most Linux slider implementations use 3.
 .TP
 \f[B]processing_mode\f[R] <integer>
 0 = FFT
+.PD 0
+.P
+.PD
 .RS
 1 = IIR
 .RE
 .TP
 \f[B]fft_quality\f[R] <integer>
-Controls the buffer size of the fft algorithm, higher is better quality,
-but with longer in processing time.
+Controls the buffer size of the FFT algorithm; higher is better quality
+but with increased processing time.
+.PD 0
+.P
+.PD
 .RS
 0 = 256
 .PD 0
@@ -54,8 +64,8 @@ but with longer in processing time.
 .RE
 .TP
 \f[B]iir_approx\f[R] <integer>
-Specifies the approximation of the IIR algorithm, higher is better
-quality, but with higher CPU usage.
+Specifies the approximation of the IIR algorithm; higher is better
+quality but with higher CPU usage.
 .PD 0
 .P
 .PD
@@ -80,7 +90,7 @@ quality, but with higher CPU usage.
 .RE
 .TP
 \f[B]curve\f[R] <integer>
-Specify the curve type.
+Specifies the curve type.
 .PD 0
 .P
 .PD
@@ -108,74 +118,75 @@ Specify the curve type.
 Whether to enable/disable clipping.
 .TP
 \f[B]clipping_range\f[R] <integer> in dB
-Specify a clipping range.
+Specifies a clipping range.
 .TP
 \f[B]output_device\f[R] <string>
-Specify which device to output to.
+Specifies which device to output to.
 .PD 0
 .P
 .PD
 .RS
-auto \ \ \ \ \ \ \ \ \ = make the script use the default output device
+auto \ \ \ \ \ \ \ \ \ = makes the script use the default output device
 .PD 0
 .P
 .PD
-<device_name> = use a specific device
+<device_name> = uses a specific device
 .RE
 .TP
 \f[B]output_device_fallback\f[R] <string>
-Specify a fallback device to output to.
+Specifies a fallback device to output to.
 .PD 0
 .P
 .PD
 .RS
-auto \ \ \ \ \ \ \ \ \ = make the script use the default output device.
+auto \ \ \ \ \ \ \ \ \ = makes the script use the default output device
 .PD 0
 .P
 .PD
-<device_name> = use a specific device
+<device_name> = uses a specific device
 .PD 0
 .P
 .PD
-none \ \ \ \ \ \ \ \ \ = disable fallback
+none \ \ \ \ \ \ \ \ \ = disables fallback
 .RE
 .TP
 \f[B]system_transfer\f[R] <boolean>
-Whether to transfer volume from pipewire to plugin and vice versa.
+Whether to transfer volume from PipeWire to the plugin and vice versa.
 .TP
 \f[B]system_fallback\f[R] <boolean>
-Whether to control in pipewire when the daemon is not running, useful
-for shortcuts.
+Whether to control volume in PipeWire when the daemon is not running;
+useful for shortcuts.
 .TP
 \f[B]auto_adjust_volume\f[R] <boolean>
-Whether to auto adjust volume when input gain change.
+Whether to auto\-adjust volume when the input gain changes.
 .TP
 \f[B]auto_reload\f[R] <boolean>
-Whether to auto reload on file save.
+Whether to auto\-reload on file save.
 .TP
 \f[B]auto_switch\f[R] <boolean>
-Whether to auto switch devices when pipewire default device changes
-while the daemon is running, only works when output_device is auto.
+Whether to auto\-switch devices when the PipeWire default device changes
+while the daemon is running; only works when output_device is set to
+auto.
 .TP
 \f[B]highest_input_gain_limit\f[R] <integer> in dB
-Sets an upper limit to input gain, empty for no limit.
+Sets an upper limit to the input gain; leave empty for no limit.
 .TP
 \f[B]lowest_input_gain_limit\f[R] <integer> in dB
-Sets a lower limit to input gain, empty for no limit.
+Sets a lower limit to the input gain; leave empty for no limit.
 .TP
-\f[B]highest_volume_limit\f[R] <integer> in percentage
-Sets an upper limit to volume, empty for no limit.
+\f[B]highest_volume_limit\f[R] <integer> in percent
+Sets an upper limit to the volume; leave empty for no limit.
 .TP
-\f[B]lowest_volume_limit\f[R] <integer> in percentage
-Sets a lower limit to volume, empty for no limit.
+\f[B]lowest_volume_limit\f[R] <integer> in percent
+Sets a lower limit to the volume; leave empty for no limit.
 .SH CUSTOM INPUT FOR EACH DEVICE
-By adding a variable with the same name as an device name follow with
-_input_gain suffix the script will use that input gain instead of using
-the value in \f[B]input_gain\f[R]
+By adding a variable with the same name as a device name followed by the
+_input_gain suffix, the script will use that input gain instead of the
+value in \f[B]input_gain\f[R].
 .PD 0
 .P
 .PD
-Note: if the device name contain \(lq.\(rq or \(lq\-\(rq they need to be
-replaced with \(lq_\(rq to work.
+Note: if the device name contains \(lq.\(rq or \(lq\-\(rq, these
+characters need to be replaced with \(lq_\(rq to work.
 .SH SEE ALSO
 \f[B]pw\-loudcomp(1)\f[R]
