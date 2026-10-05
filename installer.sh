@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 
+# SPDX-License-Identifier: MIT
+
+# These lines are used by chemability for checking commands/builtins availability https://github.com/endchill/chemability
+#CHEMA_REQ mandb;For updating man database, systemctl
+#CHEMA_OPT_BLT chmod;Builtin replacment for system chmod, rm;Builtin replacment for system rm, mkdir;Builtin replacment for system mkdir
+#CHEMA_END
+
 set -eu -o pipefail
 
 
-if [[ "${CLICOLOR_FORCE:-}" -eq 1 ]] || { [[ "${CLICOLOR:-}" -eq 1 ]] && [[ -t 1 ]] }; then
-    RESET="\033[0m"; BOLD="\033[1m"; RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"; BLUE="\033[34m"; MAGENTA="\033[35m"; CYAN="\033[36m"
+if [ "${CLICOLOR_FORCE:-}" = 1 ] || { [ "${CLICOLOR:-}" = 1 ] && [ -t 1 ]; }; then
+    RESET="$(printf '\033[0m')"; BOLD="$(printf '\033[1m')"; RED="$(printf '\033[31m')"; GREEN="$(printf '\033[32m')"; YELLOW="$(printf '\033[33m')"; BLUE="$(printf '\033[34m')"; MAGENTA="$(printf '\033[35m')"; CYAN="$(printf '\033[36m')"; GRAY="$(printf '\033[37m')"
 else
-    RESET=""; BOLD=""; RED=""; GREEN=""; YELLOW=""; BLUE=""; MAGENTA=""; CYAN=""
+    RESET=""; BOLD=""; RED=""; GREEN=""; YELLOW=""; BLUE=""; MAGENTA=""; CYAN=""; GRAY=""
 fi
 
 

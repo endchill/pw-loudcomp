@@ -8,6 +8,7 @@ BindsTo=pipewire.service
 [Service]
 Type=notify
 NotifyAccess=all
+RemainAfterExit=yes
 ExecStart=%h/.local/bin/pw-loudcomp start-daemon
 ExecReload=%h/.local/bin/pw-loudcomp reload
 ExecStop=%h/.local/bin/pw-loudcomp stop-daemon
