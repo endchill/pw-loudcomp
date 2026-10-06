@@ -13,9 +13,25 @@ shopt -s extglob
 
 
 if [ "${CLICOLOR_FORCE:-}" = 1 ] || { [ "${CLICOLOR:-}" = 1 ] && [ -t 1 ]; }; then
-    RESET="$(printf '\033[0m')"; BOLD="$(printf '\033[1m')"; RED="$(printf '\033[31m')"; GREEN="$(printf '\033[32m')"; YELLOW="$(printf '\033[33m')"; BLUE="$(printf '\033[34m')"; MAGENTA="$(printf '\033[35m')"; CYAN="$(printf '\033[36m')"; GRAY="$(printf '\033[37m')"
+    RESET="$(printf '\033[0m')"
+    BOLD="$(printf '\033[1m')"
+    RED="$(printf '\033[31m')"
+    GREEN="$(printf '\033[32m')"
+    YELLOW="$(printf '\033[33m')"
+    # BLUE="$(printf '\033[34m')"
+    MAGENTA="$(printf '\033[35m')"
+    CYAN="$(printf '\033[36m')"
+    GRAY="$(printf '\033[37m')"
 else
-    RESET=""; BOLD=""; RED=""; GREEN=""; YELLOW=""; BLUE=""; MAGENTA=""; CYAN=""; GRAY=""
+    RESET=""
+    BOLD=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    # BLUE=""
+    MAGENTA=""
+    CYAN=""
+    GRAY=""
 fi
 
 
@@ -29,7 +45,7 @@ fi
 
 function _help() {
     printf '%s\n' \
-        "${BOLD}${RED}Usage:${RESET}" \
+        # "${BOLD}${RED}Usage:${RESET}" \
         "    ${GREEN}${name}${RESET} ${YELLOW}<command> [args]${RESET}" \
         "" \
         "${BOLD}${RED}Commands:${RESET}" \
@@ -84,7 +100,7 @@ function _check_config() {
         printf 'Do you want to overwrite it? [%by%b/%bN%b] ' "$GREEN" "$RESET" "$RED" "$RESET"
         read -r awnser
         if [[ "$awnser" =~ ^[Yy]$ ]]; then
-            _create_config
+            _create_config "$config_dir/settings.env"
             printf 'Config created at %c%b%s%b%c\n' "'" "$GREEN" "$config_dir/settings.env" "$RESET" "'"
             printf 'Please edit the config to have the most accurate results.\n'
         else
@@ -95,7 +111,7 @@ function _check_config() {
         printf 'Do you want to create a config? [%bY%b/%bn%b] ' "$GREEN" "$RESET" "$RED" "$RESET"
         read -r awnser
         if [[ ! "$awnser" =~ ^[Nn]$ ]]; then
-            _create_config
+            _create_config "$config_dir/settings.env"
             printf 'Config created at %c%b%s%b%c\n' "'" "$GREEN" "$config_dir/settings.env" "$RESET" "'"
             printf 'Please edit the config to have the most accurate results.\n'
         else
@@ -107,35 +123,163 @@ function _check_config() {
 
 
 function _create_config() {
+    local filepath="$1"
+
     printf '
 # See %cman 5 pw-loudcomp%c for more infomation
 
-global_input_gain=0
-listening_volume=83
-volume_curve_exponent=2.5
+global_input_gain=0 # dB
+listening_volume=83 # dB SPL
+volume_curve_exponent=2.5 # integer
 
-processing_mode=1
-fft_quality=1
-iir_approx=2
-curve=4
+processing_mode=1 # 0|1
+fft_quality=1 # 0-6
+iir_approx=2 # 0-4
+curve=4 # 0-4
 
-is_clipping=0
-clipping_range=6
+is_clipping=0 # 0|1
+clipping_range=6 # dB
 
-output_device="auto"
-output_device_fallback="none"
+output_device="auto" # auto|<device_name>
+output_device_fallback="none" # auto|<device_name>|none
 
-system_transfer=false
-system_fallback=false
-auto_adjust_volume=false
-auto_reload=false
-auto_switch=false
+system_transfer=false # true|false
+system_fallback=false # true|false
+auto_adjust_volume=false # true|false
+auto_reload=false # true|false
+auto_switch=false # true|false
 
-highest_input_gain_limit=
-lowest_input_gain_limit=
-highest_volume_limit=
-lowest_volume_limit=
-' "'" "'" > "$config_dir/settings.env"
+highest_input_gain_limit= # dB
+lowest_input_gain_limit= # dB
+highest_volume_limit= # percentage
+lowest_volume_limit= # percentage
+' "'" "'" > "$filepath"
+}
+
+
+function _create_state_file() {
+    local filepath="$1"
+
+    printf '
+output_volume=
+mute_state=0
+curve_state=4
+raw_input_gain=
+raw_volume=-47
+' > "$filepath"
+}
+
+
+function _create_node_ready_script() {
+    local filepath="$1"
+    local loudcomp_node_description="$2"
+
+    printf '
+node_om = ObjectManager {
+    Interest {
+        type = "node",
+        Constraint { "node.description", "equals", "%s" }
+    }
+}
+
+node_om:connect("object-added", function (om, node)
+    print("ready")
+end)
+
+node_om:activate()
+' "$loudcomp_node_description" > "$filepath"
+}
+
+
+function _create_device_watcher_script() {
+    local filepath="$1"
+    local loudcomp_node_description="$2"
+
+    printf '
+local nodes_om = ObjectManager {
+    Interest {
+        type = "node",
+        Constraint { "media.class", "matches", "Audio/Sink", type = "pw-global" },
+        Constraint { "node.description", "!", "%s" },
+    }
+}
+
+local metadata_om = ObjectManager {
+    Interest {
+        type = "metadata",
+        Constraint { "metadata.name", "=", "default" },
+    }
+}
+
+local function find_node_id(node_name)
+    for node in nodes_om:iterate() do
+        if node.properties["node.name"] == node_name then
+            return node["bound-id"]
+        end
+    end
+    return nil
+end
+
+metadata_om:connect("object-added", function(om, metadata)
+    metadata:connect("changed", function(m, subject, key, value_type, value)
+        if key == "default.configured.audio.sink" then
+            local ok, parsed = pcall(function() return Json.Raw(value):parse() end)
+            if ok and parsed and parsed.name then
+                local id = find_node_id(parsed.name)
+                if id then
+                    print(id)
+                end
+            end
+        end
+    end)
+end)
+
+nodes_om:activate()
+metadata_om:activate()
+' "$loudcomp_node_description" > "$filepath"
+}
+
+
+function _create_loudcomp_node_config() {
+    local filepath="$1"
+
+    printf '
+context.modules = [
+    { name = libpipewire-module-protocol-native }
+    { name = libpipewire-module-client-node }
+    { name = libpipewire-module-adapter }
+    { name = libpipewire-module-filter-chain
+      args = {
+          node.description = "LSP Loudness Compensator"
+          media.name = "lsp-loudness-compensator"
+          filter.graph = {
+              nodes = [
+                  {
+                      type = lv2
+                      name = loudcomp
+                      plugin = "http://lsp-plug.in/plugins/lv2/loud_comp_stereo"
+                  }
+              ]
+          }
+          capture.props = {
+              node.name = "effect_input.loudcomp"
+              media.class = "Audio/Sink"
+              channelmix.lock-volumes = true
+              audio.channels = 2
+              audio.position = [ FL FR ]
+          }
+          playback.props = {
+              node.name = "effect_output.loudcomp"
+              channelmix.lock-volumes = true
+              node.autoconnect = false
+              node.passive = true
+              audio.channels = 2
+              audio.position = [ FL FR ]
+          }
+      }
+    }
+]
+' > "$filepath"
 }
 
 
@@ -334,7 +478,7 @@ function _connect_nodes() {
             pw-link -P "${loudcomp_node_description}:output_FR" "${output_name}:playback_FR" 2>/dev/null || :
             break
         fi
-    done < <(stdbuf -oL wpexec "$data_dir/ready.lua")
+    done < <(stdbuf -oL wpexec "$data_dir/node_ready.lua")
 }
 
 
@@ -487,7 +631,8 @@ function _auto_switch() {
 
 
 function _clean_up() {
-    trap - EXIT INT TERM
+    trap '' INT TERM
+    trap - EXIT
 
     [[ -n "${output_id:-}" ]] && wpctl set-mute "$output_id" 1; sleep 0.1s
 
@@ -532,115 +677,13 @@ function _start_daemon() {
     [[ -d "$runtime_dir" ]] && rm "$runtime_dir"/!(state.sock) 2>/dev/null || :
     printf '%d\n' "$$" > "$runtime_dir/pw-loudcomp.lock"
 
-    [[ ! -d "$runtime_dir"    ]] && mkdir -p "$runtime_dir"
-    [[ ! -d "$data_dir"       ]] && mkdir -p "$data_dir"
+    [[ ! -d "$runtime_dir" ]] && mkdir -p "$runtime_dir"
+    [[ ! -d "$data_dir"    ]] && mkdir -p "$data_dir"
 
-    [[ ! -f "$data_dir/state.env" ]] && printf '
-output_volume=
-mute_state=0
-curve_state=4
-raw_input_gain=
-raw_volume=-47
-' > "$data_dir/state.env"
-
-
-            [[ ! -f "$data_dir/ready.lua" ]] && printf '
-node_om = ObjectManager {
-    Interest {
-        type = "node",
-        Constraint { "node.description", "equals", "%s" }
-    }
-}
-
-node_om:connect("object-added", function (om, node)
-    print("ready")
-end)
-
-node_om:activate()
-' "$loudcomp_node_description" > "$data_dir/ready.lua"
-
-
-    [[ ! -f "$data_dir/get_new_device_id.lua" ]] && printf '
-local nodes_om = ObjectManager {
-    Interest {
-        type = "node",
-        Constraint { "media.class", "matches", "Audio/Sink", type = "pw-global" },
-        Constraint { "node.description", "!", "%s" },
-    }
-}
-
-local metadata_om = ObjectManager {
-    Interest {
-        type = "metadata",
-        Constraint { "metadata.name", "=", "default" },
-    }
-}
-
-local function find_node_id(node_name)
-    for node in nodes_om:iterate() do
-        if node.properties["node.name"] == node_name then
-            return node["bound-id"]
-        end
-    end
-    return nil
-end
-
-metadata_om:connect("object-added", function(om, metadata)
-    metadata:connect("changed", function(m, subject, key, value_type, value)
-        if key == "default.configured.audio.sink" then
-            local ok, parsed = pcall(function() return Json.Raw(value):parse() end)
-            if ok and parsed and parsed.name then
-                local id = find_node_id(parsed.name)
-                if id then
-                    print(id)
-                end
-            end
-        end
-    end)
-end)
-
-nodes_om:activate()
-metadata_om:activate()
-' "$loudcomp_node_description" > "$data_dir/get_new_device_id.lua"
-
-
-    [[ ! -f "$data_dir/loudcomp-sink.conf" ]] && printf '
-context.modules = [
-    { name = libpipewire-module-protocol-native }
-    { name = libpipewire-module-client-node }
-    { name = libpipewire-module-adapter }
-    { name = libpipewire-module-filter-chain
-      args = {
-          node.description = "LSP Loudness Compensator"
-          media.name = "lsp-loudness-compensator"
-          filter.graph = {
-              nodes = [
-                  {
-                      type = lv2
-                      name = loudcomp
-                      plugin = "http://lsp-plug.in/plugins/lv2/loud_comp_stereo"
-                  }
-              ]
-          }
-          capture.props = {
-              node.name = "effect_input.loudcomp"
-              media.class = "Audio/Sink"
-              channelmix.lock-volumes = true
-              audio.channels = 2
-              audio.position = [ FL FR ]
-          }
-          playback.props = {
-              node.name = "effect_output.loudcomp"
-              channelmix.lock-volumes = true
-              node.autoconnect = false
-              node.passive = true
-              audio.channels = 2
-              audio.position = [ FL FR ]
-          }
-      }
-    }
-]
-' > "$data_dir/loudcomp-sink.conf"
+    [[ ! -f "$data_dir/state.env"             ]] && _create_state_file "$data_dir/state.env"
+    [[ ! -f "$data_dir/node_ready.lua"        ]] && _create_node_ready_script "$data_dir/node_ready.lua" "$loudcomp_node_description"
+    [[ ! -f "$data_dir/get_new_device_id.lua" ]] && _create_device_watcher_script "$data_dir/get_new_device_id.lua" "$loudcomp_node_description"
+    [[ ! -f "$data_dir/loudcomp_node.conf"    ]] && _create_loudcomp_node_config "$data_dir/loudcomp_node.conf" "$loudcomp_node_description"
 
 
     mkfifo "$runtime_dir/command_handler"
@@ -650,7 +693,7 @@ context.modules = [
     source "$data_dir/state.env"
 
     coproc pipewire {
-        pipewire -c "$data_dir/loudcomp-sink.conf"
+        pipewire -c "$data_dir/loudcomp_node.conf"
     }
 
     if [[ "$output_device" == "auto" ]]; then
