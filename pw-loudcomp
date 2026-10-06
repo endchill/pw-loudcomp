@@ -662,9 +662,9 @@ function _clean_up() {
 
 
 function _start_daemon() {
-    trap '_clean_up "up"; exit 0' EXIT
-    trap '_clean_up "up"; exit 130' INT
-    trap '_clean_up "up"; exit 143' TERM
+    trap '_clean_up; exit 0' EXIT
+    trap '_clean_up; exit 130' INT
+    trap '_clean_up; exit 143' TERM
 
     if [[ -f "$config_dir/settings.env" ]]; then
         source "$config_dir/settings.env"
