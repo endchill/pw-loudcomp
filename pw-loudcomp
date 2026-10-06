@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 
 # These lines are used by chemability for checking commands/builtins availability https://github.com/endchill/chemability
-#CHEMA_REQ awk, grep, mkdir, mkfifo, rm, sleep
+#CHEMA_REQ awk, grep, jq, mkdir, mkfifo, pw-cli, rm, sleep, systemd-notify;For systemd integration
 #CHEMA_OPT getent;Fallback if HOME was unset, id;Fallback if USER was unset, socat;Used to handle the socket
 #CHEMA_OPT_BLT rm;Builtin replacment for system rm, id;Builtin replacment for system id, mkdir;Builtin replacment for system mkdir, mkfifo;Builtin replacment for system mkfifo, sleep;Builtin replacment for system sleep
 #CHEMA_END
@@ -18,7 +18,7 @@ if [ "${CLICOLOR_FORCE:-}" = 1 ] || { [ "${CLICOLOR:-}" = 1 ] && [ -t 1 ]; }; th
     RED="$(printf '\033[31m')"
     GREEN="$(printf '\033[32m')"
     YELLOW="$(printf '\033[33m')"
-    # BLUE="$(printf '\033[34m')"
+    BLUE="$(printf '\033[34m')"
     MAGENTA="$(printf '\033[35m')"
     CYAN="$(printf '\033[36m')"
     GRAY="$(printf '\033[37m')"
@@ -28,24 +28,26 @@ else
     RED=""
     GREEN=""
     YELLOW=""
-    # BLUE=""
+    BLUE=""
     MAGENTA=""
     CYAN=""
     GRAY=""
 fi
 
 
-[ "$EUID" -eq 0 ] && { printf 'Do %bNOT%b run this script as root.\n' "$RED" "$RESET" >&2; exit 1; }
-[ "${BASH_VERSINFO[0]}" -le 4 ] && [ "${BASH_VERSINFO[1]}" -lt 2 ] && { printf 'Bash version %b%d.%d%b is not support, please use version %b4.2%b or higher.\n' "$RED" "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}" "$RESET" "$GREEN" "$RESET" >&2; exit 1; }
+[ "$EUID" -eq 0 ] && { printf 'Do %bNOT%b run this script as root\n' "$RED" "$RESET" >&2; exit 1; }
+[ "${BASH_VERSINFO[0]}" -le 4 ] && [ "${BASH_VERSINFO[1]}" -lt 2 ] && { printf 'Bash version %b%d.%d%b is not support, please use version %b4.2%b or higher\n' "$RED" "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}" "$RESET" "$GREEN" "$RESET" >&2; exit 1; }
 
 
 #TODO fix _stop_socket function of not exiting correctly
 #TODO add logging when using start-daemon and maybe start-socket
+#TODO make inputGain variable _send_state instead of holding $global_input_gain to hold the current device input gain
+#TODO make it reload when an audio deivce dis/connects
 
 
 function _help() {
     printf '%s\n' \
-        # "${BOLD}${RED}Usage:${RESET}" \
+        "${BOLD}${RED}Usage:${RESET}" \
         "    ${GREEN}${name}${RESET} ${YELLOW}<command> [args]${RESET}" \
         "" \
         "${BOLD}${RED}Commands:${RESET}" \
@@ -72,7 +74,7 @@ function _help() {
 
 
 function _try_message() {
-    printf 'Try %c%b%s --help%b%c for more information.\n' "'" "$RED" "$name" "$RESET" "'" >&2
+    printf 'Try %c%b%s --help%b%c for more information\n' "'" "$RED" "$name" "$RESET" "'" >&2
 }
 
 
@@ -94,7 +96,8 @@ function _kill_with_children() {
 
 
 function _check_config() {
-    trap "printf '\nOperation cancelled.\n'; return 0" INT TERM
+    trap "printf '\nOperation cancelled\n'; return 0" INT TERM
+
     if [[ -f "$config_dir/settings.env" ]]; then
         printf 'Found config at %c%b%s%b%c\n' "'" "$BOLD" "$config_dir/settings.env" "$RESET" "'"
         printf 'Do you want to overwrite it? [%by%b/%bN%b] ' "$GREEN" "$RESET" "$RED" "$RESET"
@@ -102,9 +105,9 @@ function _check_config() {
         if [[ "$awnser" =~ ^[Yy]$ ]]; then
             _create_config "$config_dir/settings.env"
             printf 'Config created at %c%b%s%b%c\n' "'" "$GREEN" "$config_dir/settings.env" "$RESET" "'"
-            printf 'Please edit the config to have the most accurate results.\n'
+            printf 'Please edit the config to have the most accurate results\n'
         else
-            printf 'Operation cancelled.\n'
+            printf 'Operation cancelled\n'
             return 0
         fi
     else
@@ -113,9 +116,9 @@ function _check_config() {
         if [[ ! "$awnser" =~ ^[Nn]$ ]]; then
             _create_config "$config_dir/settings.env"
             printf 'Config created at %c%b%s%b%c\n' "'" "$GREEN" "$config_dir/settings.env" "$RESET" "'"
-            printf 'Please edit the config to have the most accurate results.\n'
+            printf 'Please edit the config to have the most accurate results\n'
         else
-            printf 'Operation cancelled.\n'
+            printf 'Operation cancelled\n'
             return 0
         fi
     fi
@@ -308,7 +311,6 @@ function _send_state() {
     for fifo_filepath in "$runtime_dir"/*; do
         [[ -p "$fifo_filepath" && "$fifo_filepath" != "/run/user/1000/pw-loudcomp/command_handler" ]] || continue
 
-        #TODO make inputGain instead of holding $global_input_gain to hold the current device input gain
         printf '{"outputID": %d, "inputGain": %d, "volume": %d, "muteState": %d, "curveState": %d, "listeningVolume": %d, "highestInputGainLimit": %d, "lowestInputGainLimit": %d, "highestVolumeLimit": %d, "lowestVolumeLimit": %d}\n' "$output_id" "$global_input_gain" "$volume" "$mute_state" "$curve_state" "$listening_volume" "${highest_input_gain_limit:-$global_input_gain}" "${lowest_input_gain_limit:-$global_input_gain}" "${highest_volume_limit:-100}" "${lowest_volume_limit:-0}" > "$fifo_filepath" &
     done
 }
@@ -527,7 +529,7 @@ function _reload_config() {
                 output_id="$(awk -v output_device="$output_device" '$2 == output_device {print $1}' <<< "$wpctl_list")"
             else
                 if [[ "$output_device_fallback" == "none" ]]; then
-                    printf '%b%s%b device not found.\n' "$RED" "$output_device" "$RESET"
+                    printf '%b%s%b device not found\n' "$RED" "$output_device" "$RESET"
                     return 1
                 elif [[ "$output_device_fallback" == "auto" ]]; then
                     _get_output_info
@@ -536,7 +538,7 @@ function _reload_config() {
                         output_name="$output_device_fallback"
                         output_id="$(awk -v output_device_fallback="$output_device_fallback" '$2 == output_device_fallback {print $1} <<< "$wpctl_list"')"
                     else
-                        printf '%b%s%b fallback device not found.\n' "$RED" "$output_device_fallback" "$RESET"
+                        printf '%b%s%b fallback device not found\n' "$RED" "$output_device_fallback" "$RESET"
                         return 1
                     fi
                 fi
@@ -665,26 +667,38 @@ function _start_daemon() {
     trap '_clean_up; exit 0' EXIT
     trap '_clean_up; exit 130' INT
     trap '_clean_up; exit 143' TERM
+    trap 'printf "Pipewire exited\n"; _clean_up; exit 1' USR1
 
     if [[ -f "$config_dir/settings.env" ]]; then
         source "$config_dir/settings.env"
     else
-        printf 'Config not found.\n' >&2
+        printf 'Config not found\n' >&2
         printf 'Did you try running %c%b%s create-config%b%c?\n' >&2 "'" "$RED" "$name" "$RESET" "'"
         return 1
     fi
 
-    [[ -d "$runtime_dir" ]] && rm "$runtime_dir"/!(state.sock) 2>/dev/null || :
-    printf '%d\n' "$$" > "$runtime_dir/pw-loudcomp.lock"
-
-    [[ ! -d "$runtime_dir" ]] && mkdir -p "$runtime_dir"
     [[ ! -d "$data_dir"    ]] && mkdir -p "$data_dir"
 
+    if [[ "${runtime_dir%/user*}" == "/tmp" ]]; then
+        if [[ ! -d "${runtime_dir%/*}" ]]; then
+            mkdir -m 700 "${runtime_dir%/*}" || :
+            mkdir -m 700 "$runtime_dir" || :
+        else
+            mkdir -p -m 700 "$runtime_dir" || :
+        fi
+    else
+        [[ ! -d "$runtime_dir" ]] && mkdir -p "$runtime_dir"
+    fi
+
+    [[ ! -f "$config_dir/settings.env"        ]] && _create_config "$config_dir/settings.env"
     [[ ! -f "$data_dir/state.env"             ]] && _create_state_file "$data_dir/state.env"
     [[ ! -f "$data_dir/node_ready.lua"        ]] && _create_node_ready_script "$data_dir/node_ready.lua" "$loudcomp_node_description"
     [[ ! -f "$data_dir/get_new_device_id.lua" ]] && _create_device_watcher_script "$data_dir/get_new_device_id.lua" "$loudcomp_node_description"
     [[ ! -f "$data_dir/loudcomp_node.conf"    ]] && _create_loudcomp_node_config "$data_dir/loudcomp_node.conf" "$loudcomp_node_description"
 
+
+    [[ -d "$runtime_dir" ]] && rm "$runtime_dir"/!(state.sock) 2>/dev/null || :
+    printf '%d\n' "$main_pid" > "$runtime_dir/pw-loudcomp.lock"
 
     mkfifo "$runtime_dir/command_handler"
     exec 3<> "$runtime_dir/command_handler"
@@ -693,8 +707,10 @@ function _start_daemon() {
     source "$data_dir/state.env"
 
     coproc pipewire {
-        pipewire -c "$data_dir/loudcomp_node.conf"
+        pipewire -c "$data_dir/loudcomp_node.conf" || { printf 'Pipewire failed\n' >&2; kill -USR1 "$main_pid"; }
     }
+
+    sleep 0.1s
 
     if [[ "$output_device" == "auto" ]]; then
         _get_output_info
@@ -704,7 +720,7 @@ function _start_daemon() {
             output_id="$(awk -v output_device="$output_device" '$2 == output_device {print $1}' <<< "$wpctl_list")"
         else
             if [[ "$output_device_fallback" == "none" ]]; then
-                printf '%b%s%b device not found.\n' "$RED" "$output_device" "$RESET"
+                printf '%b%s%b device not found\n' "$RED" "$output_device" "$RESET"
                 return 1
             elif [[ "$output_device_fallback" == "auto" ]]; then
                 _get_output_info
@@ -713,7 +729,7 @@ function _start_daemon() {
                     output_name="$output_device_fallback"
                     output_id="$(awk -v output_device_fallback="$output_device_fallback" '$2 == output_device_fallback {print $1}' <<< "$wpctl_list")"
                 else
-                    printf '%b%s%b fallback device not found.\n' "$RED" "$output_device_fallback" "$RESET"
+                    printf '%b%s%b fallback device not found\n' "$RED" "$output_device_fallback" "$RESET"
                     return 1
                 fi
             fi
@@ -834,19 +850,41 @@ function _main() {
 
     [[ -z "${USER:-}" ]] && USER="$(id -run 2>/dev/null)"
     [[ -z "${HOME:-}" ]] && IFS=':' read -r _ _ _ _ _ HOME _ < <(getent passwd "$USER")
-    [[ -z "${HOME:-}" ]] && { printf 'Unable to obtained variable %sHOME%s.\n' "$CYAN" "$RESET" >&2; return 1; }
+    [[ -z "${HOME:-}" ]] && { printf 'Unable to obtained variable %sHOME%s\n' "$CYAN" "$RESET" >&2; return 1; }
 
 
     name="${0##*/}"
+    main_pid="$$"
     nl=$'\n'
 
-    runtime_dir="${XDG_RUNTIME_DIR:-"/tmp/user-$UID"}/$name"
     config_dir="${XDG_CONFIG_HOME:-"$HOME/.config"}/$name"
     data_dir="${XDG_DATA_HOME:-"$HOME/.local/share"}/$name"
+
+    if [[ -d "/run/user/$UID" ]]; then
+        runtime_dir="${XDG_RUNTIME_DIR:-"/run/user/$UID"}/$name"
+    else
+        printf 'Runtime directory %b%s%b %bnot found%b, fallback to %b%s%b\n' "$BLUE" "/run/user/$UID" "$RESET" "$RED" "$RESET" "$GRAY" "/tmp/user-$UID" "$RESET"
+        runtime_dir="${XDG_RUNTIME_DIR:-"/tmp/user-$UID"}/$name"
+    fi
 
     loudcomp_node_description="LSP Loudness Compensator"
     loudcomp_node_name="${loudcomp_node_description// /-}"
     loudcomp_node_name="${loudcomp_node_name,,}"
+
+
+
+    if [[ -z "${PIPEWIRE_RUNTIME_DIR:-}" ]] && [[ -z "${XDG_RUNTIME_DIR:-}" ]]; then
+        printf 'Please make sure that %bXDG_RUNTIME_DIR%b or %bPIPEWIRE_RUNTIME_DIR%b are set when starting the daemon\n' "$MAGENTA" "$RESET" "$MAGENTA" "$RESET" >&2
+        return 1
+    fi
+
+    pw-cli info 0 &>/dev/null || :
+
+    if [[ "$?" -ne 0 ]]; then
+        printf 'Operation failed\n' >&2
+        printf 'Is Pipewire running?\n' >&2
+        return 1
+    fi
 
 
     case "${1:-}" in
@@ -856,8 +894,8 @@ function _main() {
         ;;
         "start-daemon")
             if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
-                printf 'Operation failed.\n' >&2
-                printf 'Daemon is already running.\n' >&2
+                printf 'Operation failed\n' >&2
+                printf 'Daemon is already running\n' >&2
                 return 1
             else
                 _start_daemon
@@ -885,19 +923,19 @@ function _main() {
 
                 return 0
             else
-                printf 'Operation failed.\n' >&2
+                printf 'Operation failed\n' >&2
                 printf 'Is the daemon running?\n' >&2
                 return 1
             fi
         ;;
         "start-socket")
             if [[ ! -f "$runtime_dir/pw-loudcomp.lock" ]]; then
-                printf 'Operation failed.\n' >&2
+                printf 'Operation failed\n' >&2
                 printf 'Is the daemon running?\n' >&2
                 return 1
             elif [[ -S "$runtime_dir/state.sock" ]]; then
-                printf 'Operation failed.\n' >&2
-                printf 'Socket is already socket running.\n' >&2
+                printf 'Operation failed\n' >&2
+                printf 'Socket is already socket running\n' >&2
                 return 1
             else
                 printf '_start_socket\n' > "$runtime_dir/command_handler"
@@ -912,8 +950,8 @@ function _main() {
                 printf '_stop_socket\n' > "$runtime_dir/command_handler"
                 return 0
             else
-                printf 'Operation failed.\n' >&2
-                printf 'Is the socket running?.\n' >&2
+                printf 'Operation failed\n' >&2
+                printf 'Is the socket running?\n' >&2
                 return 1
             fi
         ;;
@@ -922,14 +960,14 @@ function _main() {
                 printf '_reload\n' > "$runtime_dir/command_handler"
                 return 0
             else
-                printf 'Operation failed.\n' >&2
+                printf 'Operation failed\n' >&2
                 printf 'Is the daemon running?\n' >&2
                 return 1
             fi
         ;;
         "set-input-gain")
             if [[ -z "${2:-}" ]]; then
-                printf 'You have to specify a value.\n' >&2
+                printf 'You have to specify a value\n' >&2
                 _try_message
                 return 1
             elif [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
@@ -943,7 +981,7 @@ function _main() {
                     return 1
                 fi
             else
-                printf 'Operation failed.\n' >&2
+                printf 'Operation failed\n' >&2
                 printf 'Is the daemon running?\n' >&2
                 return 1
             fi
@@ -951,7 +989,7 @@ function _main() {
         "set-volume")
             [[ -f "$config_dir/settings.env" ]] && source "$config_dir/settings.env"
             if [[ -z "${2:-}" ]]; then
-                printf 'You have to specify a value.\n' >&2
+                printf 'You have to specify a value\n' >&2
                 _try_message
                 return 1
             elif [[ "$2" =~ ^([0-9]+)%([+-])$ ]]; then
@@ -960,7 +998,7 @@ function _main() {
                 elif [[ "${system_fallback:-}" == true ]]; then
                     wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ "$2"
                 else
-                    printf 'Operation failed.\n' >&2
+                    printf 'Operation failed\n' >&2
                     printf 'Is the daemon running?\n' >&2
                     return 1
                 fi
@@ -970,7 +1008,7 @@ function _main() {
                 elif [[ "${system_fallback:-}" == true ]]; then
                     wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ "$2"
                 else
-                    printf 'Operation failed.\n' >&2
+                    printf 'Operation failed\n' >&2
                     printf 'Is the daemon running?\n' >&2
                     return 1
                 fi
@@ -984,7 +1022,7 @@ function _main() {
             [[ -f "$config_dir/settings.env" ]] && source "$config_dir/settings.env"
             if [[ -f "$runtime_dir/pw-loudcomp.lock" ]] || [[ "${system_fallback:-}" == true ]]; then
                 if [[ -z "${2:-}" ]]; then
-                    printf 'You have to specify a value.\n' >&2
+                    printf 'You have to specify a value\n' >&2
                     return 1
                 elif [[ ! "$2" =~ ^(1|0|toggle)$ ]]; then
                     printf 'Invalid format: %c%b%s%b%c\n' "'" "$RED" "$2" "$RESET" "'" >&2
@@ -998,21 +1036,21 @@ function _main() {
                     return 0
                 fi
             else
-                printf 'Operation failed.\n' >&2
+                printf 'Operation failed\n' >&2
                 printf 'Is the daemon running?\n' >&2
                 return 1
             fi
         ;;
         "set-curve-state")
             if [[ -z "${2:-}" ]]; then
-                printf 'You have to specify a value.\n' >&2
+                printf 'You have to specify a value\n' >&2
                 return 1
             elif [[ "$2" =~ ^(1|0|toggle)$ ]]; then
                 if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
                     printf '_set_curve_state %s\n' "$2" > "$runtime_dir/command_handler"
                     return 0
                 else
-                    printf 'Operation failed.\n' >&2
+                    printf 'Operation failed\n' >&2
                     printf 'Is the daemon running?\n' >&2
                     return 1
                 fi
@@ -1024,14 +1062,14 @@ function _main() {
         ;;
         "set")
             if [[ -z "${3:-}" ]]; then
-                printf 'You have to specify two values.\n' >&2
+                printf 'You have to specify two values\n' >&2
                 _try_message
                 return 1
             else
                 if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
                     printf 'set %s %s\n' "$2" "$3" > "$runtime_dir/command_handler"
                 else
-                    printf 'Operation failed.\n' >&2
+                    printf 'Operation failed\n' >&2
                     printf 'Is the daemon running?\n' >&2
                     return 1
                 fi
@@ -1042,7 +1080,7 @@ function _main() {
             return "$?"
         ;;
         "")
-            printf 'You have to specify a command.\n' >&2
+            printf 'You have to specify a command\n' >&2
             _try_message
             return 1
         ;;
