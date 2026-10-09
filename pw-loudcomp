@@ -43,6 +43,7 @@ fi
 #TODO add logging when using start-daemon and maybe start-socket
 #TODO make inputGain variable _send_state instead of holding $global_input_gain to hold the current device input gain
 #TODO make it reload when an audio deivce dis/connects
+#TODO add a version check for pipewire wireplumber and any other program that need to be added if an older version does not support a used feature
 
 
 function _help() {
@@ -309,7 +310,7 @@ function _save_state() {
 
 function _send_state() {
     for fifo_filepath in "$runtime_dir"/*; do
-        [[ -p "$fifo_filepath" && "$fifo_filepath" != "/run/user/1000/pw-loudcomp/command_handler" ]] || continue
+        [[ -p "$fifo_filepath" && "$fifo_filepath" != "$runtime_dir/command_handler" ]] || continue
 
         printf '{"outputID": %d, "inputGain": %d, "volume": %d, "muteState": %d, "curveState": %d, "listeningVolume": %d, "highestInputGainLimit": %d, "lowestInputGainLimit": %d, "highestVolumeLimit": %d, "lowestVolumeLimit": %d}\n' "$output_id" "$global_input_gain" "$volume" "$mute_state" "$curve_state" "$listening_volume" "${highest_input_gain_limit:-$global_input_gain}" "${lowest_input_gain_limit:-$global_input_gain}" "${highest_volume_limit:-100}" "${lowest_volume_limit:-0}" > "$fifo_filepath" &
     done
