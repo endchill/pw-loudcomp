@@ -539,7 +539,7 @@ function _reload_config() {
                 else
                     if grep --quiet "$output_device_fallback" <<< "$wpctl_list"; then
                         output_name="$output_device_fallback"
-                        output_id="$(awk -v output_device_fallback="$output_device_fallback" '$2 == output_device_fallback {print $1} <<< "$wpctl_list"')"
+                        output_id="$(awk -v output_device_fallback="$output_device_fallback" '$2 == output_device_fallback {print $1}' <<< "$wpctl_list")"
                     else
                         printf '%b%s%b fallback device not found\n' "$RED" "$output_device_fallback" "$RESET"
                         return 1
