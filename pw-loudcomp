@@ -44,6 +44,8 @@ fi
 #TODO make inputGain variable _send_state instead of holding $global_input_gain to hold the current device input gain
 #TODO make it reload when an audio deivce dis/connects
 #TODO add a version check for pipewire wireplumber and any other program that need to be added if an older version does not support a used feature
+#TODO add a variable check for configs when sourced
+#TODO add comments for only needed things
 
 
 function _help() {
@@ -52,12 +54,12 @@ function _help() {
         "    ${GREEN}${name}${RESET} ${YELLOW}<command> [args]${RESET}" \
         "" \
         "${BOLD}${RED}Commands:${RESET}" \
-        "    ${GREEN}start-daemon${RESET}                Starts the daemon if it is not running; it is recommended to use the systemd service instead" \
-        "    ${GREEN}stop-daemon${RESET}                 Stops the daemon if it is running; it is recommended to use the systemd service instead" \
-        "    ${GREEN}start-socket${RESET}                Starts the socket if it is not running; it is recommended to use the systemd socket instead" \
-        "    ${GREEN}stop-socket${RESET}                 Stops the socket if it is running; it is recommended to use the systemd socket instead" \
-        "    ${GREEN}reload${RESET}                      Manually reloads the configuration instead of restarting the daemon" \
-        "    ${GREEN}create-config${RESET}               Manually creates a configuration file" \
+        "    ${GREEN}start-daemon${RESET}                Starts the daemon" \
+        "    ${GREEN}stop-daemon${RESET}                 Stops the daemon" \
+        "    ${GREEN}start-socket${RESET}                Starts the socket" \
+        "    ${GREEN}stop-socket${RESET}                 Stops the socket" \
+        "    ${GREEN}reload${RESET}                      Reloads the configuration" \
+        "    ${GREEN}create-config${RESET}               Creates a configuration file" \
         "" \
         "    ${GREEN}set-input-gain${RESET}   ${YELLOW}<value>${RESET}    Sets an input gain value or increases or decreases it" \
         "    ${GREEN}set-volume${RESET}       ${YELLOW}<value>${RESET}    Sets a volume value or increases or decreases it" \
@@ -65,7 +67,7 @@ function _help() {
         "    ${GREEN}set-curve-state${RESET}  ${YELLOW}<state>${RESET}    Specifies whether to enable or disable the correction curve" \
         "" \
         "    ${GREEN}-h, --help${RESET}                  Displays this help message" \
-        "    ${GREEN}set <property> <raw_value>${RESET}  Directly sets values for any LSP loudness compensation symbol parameter" \
+        "    ${GREEN}set <property> <raw_value>${RESET}  Directly sets a value for any LSP loudness compensation symbol parameter" \
         "" \
         "${BOLD}${RED}Arguments:${RESET}" \
         "    ${GREEN}2(+/-)${RESET}                      Sets an exact value                         ${CYAN}(volume, input-gain)${RESET}" \
