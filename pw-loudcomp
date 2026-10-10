@@ -81,7 +81,7 @@ function _try_message() {
 }
 
 
-function _kill_with_children() {
+function _kill_recursively() {
     local parent_pid="$1"
     local children_pids=()
     local child_pid
@@ -90,7 +90,7 @@ function _kill_with_children() {
         read -r -a children_pids < "/proc/$parent_pid/task/$parent_pid/children" || :
 
         for child_pid in "${children_pids[@]}"; do
-            _kill_with_children "$child_pid"
+            _kill_recursively "$child_pid"
         done
 
         kill "$parent_pid" 2>/dev/null || :
@@ -104,8 +104,8 @@ function _check_config() {
     if [[ -f "$config_dir/settings.env" ]]; then
         printf 'Found config at %c%b%s%b%c\n' "'" "$BOLD" "$config_dir/settings.env" "$RESET" "'"
         printf 'Do you want to overwrite it? [%by%b/%bN%b] ' "$GREEN" "$RESET" "$RED" "$RESET"
-        read -r awnser
-        if [[ "$awnser" =~ ^[Yy]$ ]]; then
+        read -r answer
+        if [[ "$answer" =~ ^[Yy]$ ]]; then
             _create_config "$config_dir/settings.env"
             printf 'Config created at %c%b%s%b%c\n' "'" "$GREEN" "$config_dir/settings.env" "$RESET" "'"
             printf 'Please edit the config to have the most accurate results\n'
@@ -115,8 +115,8 @@ function _check_config() {
         fi
     else
         printf 'Do you want to create a config? [%bY%b/%bn%b] ' "$GREEN" "$RESET" "$RED" "$RESET"
-        read -r awnser
-        if [[ ! "$awnser" =~ ^[Nn]$ ]]; then
+        read -r answer
+        if [[ ! "$answer" =~ ^[Nn]$ ]]; then
             _create_config "$config_dir/settings.env"
             printf 'Config created at %c%b%s%b%c\n' "'" "$GREEN" "$config_dir/settings.env" "$RESET" "'"
             printf 'Please edit the config to have the most accurate results\n'
@@ -290,12 +290,12 @@ context.modules = [
 
 
 function _get_output_info() {
-    wpctl_list="$(wpctl list)"
+    local wpctl_devices_list="$1"
 
-    read -r output_name output_id < <(awk '/audio\/sink.*\*/ { printf "%s\t%d\n", $2, $1 }' <<< "$wpctl_list") || :
+    read -r output_name output_id < <(awk '/audio\/sink.*\*/ { printf "%s\t%d\n", $2, $1 }' <<< "$wpctl_devices_list") || :
 
     if [[ -z "$output_name" || -z "$output_id" ]]; then
-        IFS=$'\t' read -r output_name output_id < <(while read -r id; do wpctl inspect "$id"; done < <(awk '/sink/ {print $1}' <<< "$wpctl_list") | awk -F '[ ,]' '
+        IFS=$'\t' read -r output_name output_id < <(while read -r id; do wpctl inspect "$id"; done < <(awk '/sink/ {print $1}' <<< "$wpctl_devices_list") | awk -F '[ ,]' '
             /^id/ {id = $2; FS = "= "; $0 = $0}
             /node\.name/ {gsub(/^"+|"+$/, "", $2); name = $2 "\t" id}
             /priority.session/ { gsub(/^"+|"+$/, "", $2); list[$2] = name; FS = "[ ,]"; $0 = $0}
@@ -466,7 +466,7 @@ function _socket_handler() {
 
 function _stop_socket() {
     if [[ -n "${socket_PID:-}" ]]; then
-        _kill_with_children "$socket_PID"
+        _kill_recursively "$socket_PID"
 
         for pipe in "$runtime_dir"/*;do
             [[ -p "$pipe" ]] && rm "$pipe"
@@ -525,7 +525,7 @@ function _reload_config() {
         wpctl_list="$(wpctl list)"
 
         if [[ "$output_device" == "auto" ]]; then
-            _get_output_info
+            _get_output_info "$wpctl_list"
         else
             if grep --quiet "$output_device" <<< "$wpctl_list"; then
                 output_name="$output_device"
@@ -535,7 +535,7 @@ function _reload_config() {
                     printf '%b%s%b device not found\n' "$RED" "$output_device" "$RESET"
                     return 1
                 elif [[ "$output_device_fallback" == "auto" ]]; then
-                    _get_output_info
+                    _get_output_info "$wpctl_list"
                 else
                     if grep --quiet "$output_device_fallback" <<< "$wpctl_list"; then
                         output_name="$output_device_fallback"
@@ -644,10 +644,10 @@ function _clean_up() {
 
     (: >&3) 2>/dev/null && exec 3>&-
 
-    _kill_with_children "${pipewire_PID:-}"
-    _kill_with_children "${auto_reload_PID:-}"
-    _kill_with_children "${auto_switch_PID:-}"
-    _kill_with_children "${socket_PID:-}"
+    _kill_recursively "${pipewire_PID:-}"
+    _kill_recursively "${auto_reload_PID:-}"
+    _kill_recursively "${auto_switch_PID:-}"
+    _kill_recursively "${socket_PID:-}"
 
     if [[ -n "${output_id:-}" ]]; then
         if [[ "${system_transfer:-}" == true ]]; then
@@ -701,7 +701,7 @@ function _start_daemon() {
 
 
     [[ -d "$runtime_dir" ]] && rm "$runtime_dir"/!(state.sock) 2>/dev/null || :
-    printf '%d\n' "$main_pid" > "$runtime_dir/pw-loudcomp.lock"
+    printf '%d\n' "$main_pid" > "$runtime_dir/$name.lock"
 
     mkfifo "$runtime_dir/command_handler"
     exec 3<> "$runtime_dir/command_handler"
@@ -715,8 +715,10 @@ function _start_daemon() {
 
     sleep 0.1s
 
+    wpctl_list="$(wpctl list)"
+
     if [[ "$output_device" == "auto" ]]; then
-        _get_output_info
+        _get_output_info "$wpctl_list"
     else
         if grep --quiet "$output_device" <<< "$wpctl_list"; then
             output_name="$output_device"
@@ -726,7 +728,7 @@ function _start_daemon() {
                 printf '%b%s%b device not found\n' "$RED" "$output_device" "$RESET"
                 return 1
             elif [[ "$output_device_fallback" == "auto" ]]; then
-                _get_output_info
+                _get_output_info "$wpctl_list"
             else
                 if grep --quiet "$output_device_fallback" <<< "$wpctl_list"; then
                     output_name="$output_device_fallback"
