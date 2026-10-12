@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 # SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 ENDChill
 
 # These lines are used by chemability for checking commands/builtins availability https://github.com/endchill/chemability
 #CHEMA_REQ awk, grep, jq, mkdir, mkfifo, pw-cli, rm, sleep, systemd-notify;For systemd integration
