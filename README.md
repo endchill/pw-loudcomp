@@ -44,6 +44,6 @@ The goal is to calibrate your device to a reference (83 dB SPL), which can be co
 
 ### A rule of thumb
 
-If you find yourself maxing out your volume, your input gain value should be around positive 0 to 10 dB. Conversely, if your volume for the most part sits around 30–45%, your input gain should be around negative 10 to 20 dB (-10 to -20 dB).
+If you find yourself maxing out your volume, your input gain value should be around positive 0 to 10 dB. Conversely, if your volume for the most part sits around 30–45%, your input gain should be around negative -10 to -20 dB.
 
 If you calibrate your headphones, earphones, or speakers correctly, the volume range should sound the same across all calibrated devices. A 50% volume setting on one device will produce the same loudness as a 50% volume setting on another.
