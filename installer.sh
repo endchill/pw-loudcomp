@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: MIT
 
 # These lines are used by chemability for checking commands/builtins availability https://github.com/endchill/chemability
-#CHEMA_REQ mandb;For updating man database, systemctl;For systemd integration
+#CHEMA_REQ systemctl;For systemd integration
+#CHEMA_OPT mandb;For updating man database
 #CHEMA_OPT_BLT chmod;Builtin replacment for system chmod, rm;Builtin replacment for system rm, mkdir;Builtin replacment for system mkdir
 #CHEMA_END
 
