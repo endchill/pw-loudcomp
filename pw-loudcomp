@@ -100,7 +100,7 @@ function _kill_recursively() {
 
 
 function _check_config() {
-    trap "printf '\nOperation cancelled\n'; return 0" INT TERM
+    trap "printf '\nOperation cancelled\n'; exit 130" INT TERM
 
     if [[ -f "$config_dir/settings.env" ]]; then
         printf 'Found config at %c%b%s%b%c\n' "'" "$BOLD" "$config_dir/settings.env" "$RESET" "'"
@@ -456,7 +456,7 @@ function _socket_handler() {
     trap 'rm "$fifo_filepath"' EXIT
     exec 3<> "$fifo_filepath"
 
-    sleep 0.001s && printf '_send_state\n' > "$runtime_dir/command_handler"
+    sleep 0.01s && printf '_send_state\n' > "$runtime_dir/command_handler"
     while read -r line; do
         printf '%s\n' "$line"
     done <&3
@@ -884,7 +884,10 @@ function _main() {
         return 1
     fi
 
-    pw-cli info 0 &>/dev/null || :
+
+    set +e
+    pw-cli info 0 &>/dev/null
+    set -e
 
     if [[ "$?" -ne 0 ]]; then
         printf 'Operation failed\n' >&2
@@ -913,7 +916,10 @@ function _main() {
                 if systemctl --user is-active pw-loudcompd >/dev/null; then
                     systemctl --user stop pw-loudcompd
                 else
+                    declare -i inotifywait_PID
                     coproc inotifywait { inotifywait -q -m -e delete "$runtime_dir"; }
+
+                    trap 'kill "${inotifywait_PID:-}" 2>/dev/null' INT
 
                     printf '_stop_daemon\n' > "$runtime_dir/command_handler"
 
@@ -923,7 +929,7 @@ function _main() {
                         fi
                     done <&"${inotifywait[0]}"
 
-                    kill "${inotifywait_PID:-}" 2>/dev/null || :
+                    kill "${inotifywait_PID:-}" 2>/dev/null
                     systemd-notify --stopping 2>/dev/null || :
                 fi
 
