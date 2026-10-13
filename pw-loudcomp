@@ -132,8 +132,8 @@ function _check_config() {
 function _create_config() {
     local filepath="$1"
 
-    printf '
-# See %cman 5 pw-loudcomp%c for more infomation
+    printf \
+'# See %cman 5 pw-loudcomp%c for more infomation
 
 global_input_gain=0 # dB
 listening_volume=83 # dB SPL
@@ -167,8 +167,8 @@ lowest_volume_limit= # percentage
 function _create_state_file() {
     local filepath="$1"
 
-    printf '
-output_volume=
+    printf \
+'output_volume=
 mute_state=0
 curve_state=4
 raw_input_gain=
@@ -181,8 +181,8 @@ function _create_node_ready_script() {
     local filepath="$1"
     local loudcomp_node_description="$2"
 
-    printf '
-node_om = ObjectManager {
+    printf \
+'node_om = ObjectManager {
     Interest {
         type = "node",
         Constraint { "node.description", "equals", "%s" }
@@ -202,8 +202,8 @@ function _create_device_watcher_script() {
     local filepath="$1"
     local loudcomp_node_description="$2"
 
-    printf '
-local nodes_om = ObjectManager {
+    printf \
+'local nodes_om = ObjectManager {
     Interest {
         type = "node",
         Constraint { "media.class", "matches", "Audio/Sink", type = "pw-global" },
@@ -250,8 +250,8 @@ metadata_om:activate()
 function _create_loudcomp_node_config() {
     local filepath="$1"
 
-    printf '
-context.modules = [
+    printf \
+'context.modules = [
     { name = libpipewire-module-protocol-native }
     { name = libpipewire-module-client-node }
     { name = libpipewire-module-adapter }
