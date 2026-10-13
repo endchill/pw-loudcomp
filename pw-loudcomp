@@ -4,13 +4,15 @@
 # SPDX-FileCopyrightText: 2026 ENDChill
 
 # These lines are used by chemability for checking commands/builtins availability https://github.com/endchill/chemability
-#CHEMA_REQ awk, grep, jq, mkdir, mkfifo, pw-cli, rm, sleep, systemd-notify;For systemd integration
-#CHEMA_OPT getent;Fallback if HOME was unset, id;Fallback if USER was unset, socat;Used to handle the socket
+#CHEMA_REQ awk, grep, jq, mkdir, mkfifo, pw-cli, rm, sleep
+#CHEMA_OPT getent;Fallback if HOME was unset, id;Fallback if USER was unset, qdbus6;For KDE Plasma integration, socat;Used to handle the socket, sox;For playing sound when volume changes, systemd-notify;For systemd integration
 #CHEMA_OPT_BLT rm;Builtin replacment for system rm, id;Builtin replacment for system id, mkdir;Builtin replacment for system mkdir, mkfifo;Builtin replacment for system mkfifo, sleep;Builtin replacment for system sleep
 #CHEMA_END
 
 set -eu -o pipefail
 shopt -s extglob
+
+PS4='+ $LINENO: '
 
 
 if [ "${CLICOLOR_FORCE:-}" = 1 ] || { [ "${CLICOLOR:-}" = 1 ] && [ -t 1 ]; }; then
@@ -40,12 +42,14 @@ fi
 [ "${BASH_VERSINFO[0]}" -ge 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ] || { printf 'Bash version %b%d.%d%b is not support, please use version %b4.2%b or higher\n' "$RED" "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}" "$RESET" "$GREEN" "$RESET" >&2; exit 1; }
 
 
+#TODO add a custom config filepath option -c, --config
+#TODO add an option that controls the limit for wpctl when changing the volume while the daemon is not running -l, --limit
 #TODO fix _stop_socket function of not exiting correctly
 #TODO add logging when using start-daemon and maybe start-socket
-#TODO make inputGain variable _send_state instead of holding $global_input_gain to hold the current device input gain
-#TODO make it reload when an audio deivce dis/connects
+#TODO make inputGain variable in _send_state instead of holding $global_input_gain to hold the current device input gain
+#TODO make it reload when an audio device dis/connects
 #TODO add a version check for pipewire wireplumber and any other program that need to be added if an older version does not support a used feature
-#TODO add a variable check for configs when sourced
+#TODO add a variable check for configs when sourced, maybe a function like _source "<filepath>" that source the file too?
 #TODO add comments for only needed things
 
 
@@ -153,13 +157,14 @@ output_device_fallback="none" # auto|<device_name>|none
 system_transfer=false # true|false
 system_fallback=false # true|false
 auto_adjust_volume=false # true|false
+play_sound=false # true|false
 auto_reload=false # true|false
 auto_switch=false # true|false
 
-highest_input_gain_limit= # dB
-lowest_input_gain_limit= # dB
-highest_volume_limit= # percentage
-lowest_volume_limit= # percentage
+highest_input_gain_limit= # dB|empty
+lowest_input_gain_limit= # dB|empty
+highest_volume_limit= # percentage|empty
+lowest_volume_limit= # percentage|empty
 ' "'" "'" > "$filepath"
 }
 
@@ -317,6 +322,18 @@ function _send_state() {
 
         printf '{"outputID": %d, "inputGain": %d, "volume": %d, "muteState": %d, "curveState": %d, "listeningVolume": %d, "highestInputGainLimit": %d, "lowestInputGainLimit": %d, "highestVolumeLimit": %d, "lowestVolumeLimit": %d}\n' "$output_id" "$global_input_gain" "$volume" "$mute_state" "$curve_state" "$listening_volume" "${highest_input_gain_limit:-$global_input_gain}" "${lowest_input_gain_limit:-$global_input_gain}" "${highest_volume_limit:-100}" "${lowest_volume_limit:-0}" > "$fifo_filepath" &
     done
+
+    if [[ "${XDG_CURRENT_DESKTOP:-}" == "KDE" ]]; then
+        if [[ "$mute_state" == 0 ]]; then
+            qdbus6 org.kde.plasmashell /org/kde/osdService org.kde.osdService.volumeChanged "$volume" 2>/dev/null &
+        else
+            qdbus6 org.kde.plasmashell /org/kde/osdService org.kde.osdService.volumeChanged 0 2>/dev/null &
+        fi
+    fi
+
+    if [[ "$play_sound" == true ]] && [[ "$mute_state" == 0 ]] && [[ "${sound_available:-}" == true ]]; then
+        play "/usr/share/sounds/$sound_theme/stereo/audio-volume-change.oga" 2>/dev/null &
+    fi
 }
 
 
@@ -828,6 +845,7 @@ function _start_daemon() {
 
     systemd-notify --ready 2>/dev/null || :
 
+
     while read -r cmd arg1 arg2; do
         case "$cmd" in
             "set")
@@ -896,6 +914,23 @@ function _main() {
         printf 'Operation failed\n' >&2
         printf 'Is Pipewire running?\n' >&2
         return 1
+    fi
+
+
+    if command -v play >/dev/null; then
+        sound_available=true
+
+        read -r sound_theme < <(kreadconfig6 --file kdeglobals --group Sounds --key Theme 2>/dev/null) || :
+
+        if [[ -z "${sound_theme:-}" ]]; then
+            if [[ "${XDG_CURRENT_DESKTOP:-}" == "KDE" ]]; then
+                sound_theme="ocean"
+            else
+                sound_theme="freedesktop"
+            fi
+        fi
+    elif [[ "$play_sound" == "true" ]]; then
+        printf '%bWarning%b: command play from sox package not found, no sound will play\n' "$RED" "$RESET" >&2
     fi
 
 
@@ -1013,6 +1048,11 @@ function _main() {
                     return 0
                 elif [[ "${system_fallback:-}" == true ]]; then
                     wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ "$2"
+                    wpctl set-mute @DEFAULT_AUDIO_SINK@ 0
+
+                    if [[ "$play_sound" == true ]] && [[ "${sound_available:-}" == true ]]; then
+                        play "/usr/share/sounds/$sound_theme/stereo/audio-volume-change.oga" 2>/dev/null &
+                    fi
                 else
                     printf 'Operation failed\n' >&2
                     printf 'Is the daemon running?\n' >&2
@@ -1024,6 +1064,11 @@ function _main() {
                     return 0
                 elif [[ "${system_fallback:-}" == true ]]; then
                     wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ "$2"
+                    wpctl set-mute @DEFAULT_AUDIO_SINK@ 0
+
+                    if [[ "$play_sound" == true ]] && [[ "${sound_available:-}" == true ]]; then
+                        play "/usr/share/sounds/$sound_theme/stereo/audio-volume-change.oga" 2>/dev/null &
+                    fi
                 else
                     printf 'Operation failed\n' >&2
                     printf 'Is the daemon running?\n' >&2
@@ -1055,6 +1100,15 @@ function _main() {
                     return 0
                 else
                     wpctl set-mute @DEFAULT_AUDIO_SINK@ "$2"
+                    wpctl_get_volume="$(wpctl get-volume @DEFAULT_AUDIO_SINK@)"
+
+                    if [[ "${XDG_CURRENT_DESKTOP:-}" == "KDE" ]]; then
+                        if grep --quiet '[MUTED]' <<< "$wpctl_get_volume"; then
+                            qdbus6 org.kde.plasmashell /org/kde/osdService org.kde.osdService.volumeChanged 0 2>/dev/null &
+                        else
+                            qdbus6 org.kde.plasmashell /org/kde/osdService org.kde.osdService.volumeChanged "$(awk -v volume="${wpctl_get_volume:8}" 'BEGIN {printf "%.0f\n", volume * 100}')" 2>/dev/null &
+                        fi
+                    fi
                     return 0
                 fi
             else
