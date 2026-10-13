@@ -64,7 +64,7 @@ function _help() {
         "" \
         "    ${GREEN}set-input-gain${RESET}   ${YELLOW}<value>${RESET}    Sets an input gain value or increases or decreases it" \
         "    ${GREEN}set-volume${RESET}       ${YELLOW}<value>${RESET}    Sets a volume value or increases or decreases it" \
-        "    ${GREEN}set-mute-state${RESET}   ${YELLOW}<state>${RESET}    Specifies whether to mute or unmute the output device" \
+        "    ${GREEN}set-mute${RESET}         ${YELLOW}<state>${RESET}    Specifies whether to mute or unmute the output device" \
         "    ${GREEN}set-curve-state${RESET}  ${YELLOW}<state>${RESET}    Specifies whether to enable or disable the correction curve" \
         "" \
         "    ${GREEN}-h, --help${RESET}                  Displays this help message" \
@@ -73,7 +73,7 @@ function _help() {
         "${BOLD}${RED}Arguments:${RESET}" \
         "    ${GREEN}2(+/-)${RESET}                      Sets an exact value                         ${CYAN}(volume, input-gain)${RESET}" \
         "    ${GREEN}2%(+/-)${RESET}                     Increases or decreases the value relatively ${CYAN}(volume, input-gain)${RESET}" \
-        "    ${GREEN}1/0/toggle${RESET}                  Sets a state                                ${CYAN}(mute-state, curve-state)${RESET}"
+        "    ${GREEN}1/0/toggle${RESET}                  Sets a state                                ${CYAN}(set-mute, set-curve-state)${RESET}"
 }
 
 
@@ -373,6 +373,9 @@ function _set_volume() {
     else
         volume="$1"
     fi
+
+    wpctl set-mute "$output_id" 0
+    mute_state=0
 
     raw_volume="$(awk -v volume="$volume" -v vce="$volume_curve_exponent" 'BEGIN {printf "%.6f\n", 20 * log((volume / 100) ^ vce) / log(10)}')"
     [[ "$raw_volume" == "-inf"  ]] && raw_volume=-83
@@ -1007,6 +1010,7 @@ function _main() {
             elif [[ "$2" =~ ^([0-9]+)%([+-])$ ]]; then
                 if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
                     printf "_set_relative_volume %s %s\n" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" > "$runtime_dir/command_handler"
+                    return 0
                 elif [[ "${system_fallback:-}" == true ]]; then
                     wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ "$2"
                 else
@@ -1014,9 +1018,10 @@ function _main() {
                     printf 'Is the daemon running?\n' >&2
                     return 1
                 fi
-            elif [[ "$2" =~ ^([0-9]+)$ ]]; then
+            elif [[ "$2" =~ ^(0\.[0-9]+)$ ]]; then
                 if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
-                    printf "_set_volume %s\n" "$2" > "$runtime_dir/command_handler"
+                    printf "_set_volume %s\n" "$(awk -v volume="$2" 'BEGIN {printf "%.0f", volume * 100 }')" > "$runtime_dir/command_handler"
+                    return 0
                 elif [[ "${system_fallback:-}" == true ]]; then
                     wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ "$2"
                 else
@@ -1025,12 +1030,17 @@ function _main() {
                     return 1
                 fi
             else
-                printf 'Invalid format: %c%b%s%b%c\n' "'" "$RED" "$2" "$RESET" "'" >&2
-                _try_message
-                return 1
+                if [[ "$2" =~ ^([0-9]+)$ ]]; then
+                    printf 'Value is only from 0.00 to 1.00\n' >&2
+                    return 1
+                else
+                    printf 'Invalid format: %c%b%s%b%c\n' "'" "$RED" "$2" "$RESET" "'" >&2
+                    _try_message
+                    return 1
+                fi
             fi
         ;;
-        "set-mute-state")
+        "set-mute")
             [[ -f "$config_dir/settings.env" ]] && source "$config_dir/settings.env"
             if [[ -f "$runtime_dir/pw-loudcomp.lock" ]] || [[ "${system_fallback:-}" == true ]]; then
                 if [[ -z "${2:-}" ]]; then
