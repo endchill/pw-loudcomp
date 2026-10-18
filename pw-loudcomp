@@ -446,8 +446,10 @@ function _set_volume() {
         volume="$1"
     fi
 
-    wpctl set-mute "$output_id" 0
-    mute_state=0
+    if [[ "$mute_state" -eq 1 ]]; then
+        wpctl set-mute "$output_id" 0
+        mute_state=0
+    fi
 
     raw_volume="$(awk -v volume="$volume" -v vce="$volume_curve_exponent" 'BEGIN {printf "%.6f\n", 20 * log((volume / 100) ^ vce) / log(10)}')"
     [[ "$raw_volume" == "-inf"  ]] && raw_volume=-83
