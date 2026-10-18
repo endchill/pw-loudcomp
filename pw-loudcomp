@@ -193,7 +193,7 @@ function _create_config() {
 
 global_input_gain=0 # dB
 listening_volume=83 # dB SPL
-volume_curve_exponent=2.5 # integer
+volume_curve_exponent=2.5 # float
 
 processing_mode=1 # 0|1
 fft_quality=1 # 0-6
@@ -989,16 +989,11 @@ function _main() {
     fi
 
 
-    set +e
-
-    pw-cli info 0 &>/dev/null
-
-    if [[ "$?" -ne 0 ]]; then
+    if pw-cli info 0; then
         _print_message "stderr" "No such process" "cannot access pipewire"
         return 1
     fi
 
-    set -e
 
     case "${1:-}" in
         "--help"|"-h")
