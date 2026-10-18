@@ -137,6 +137,7 @@ function _print_log() {
 }
 
 
+# shellcheck disable=SC2329
 function _kill_recursively() {
     local parent_pid="$1"
     local children_pids=()
@@ -367,6 +368,7 @@ function _save_state() {
 }
 
 
+# shellcheck disable=SC2329
 function _send_state() {
     for fifo_filepath in "$runtime_dir"/*; do
         [[ -p "$fifo_filepath" && "$fifo_filepath" != "$runtime_dir/command_handler" ]] || continue
@@ -388,6 +390,7 @@ function _send_state() {
 }
 
 
+# shellcheck disable=SC2329
 function _set_input_gain() {
     local previous_input_gain
     local new_volume
@@ -433,6 +436,7 @@ function _set_input_gain() {
 }
 
 
+# shellcheck disable=SC2329
 function _set_volume() {
     if [[ "$1" -gt "$highest_volume_limit" ]]; then
         volume="$highest_volume_limit"
@@ -453,6 +457,7 @@ function _set_volume() {
 }
 
 
+# shellcheck disable=SC2329
 function _set_relative_input_gain() {
     local absolute_input_gain
     if [[ "$2" == "+" ]]; then
@@ -465,6 +470,7 @@ function _set_relative_input_gain() {
 }
 
 
+# shellcheck disable=SC2329
 function _set_relative_volume() {
     if [[ "$2" == "+" ]]; then
         volume="$((volume+$1))"
@@ -476,6 +482,7 @@ function _set_relative_volume() {
 }
 
 
+# shellcheck disable=SC2329
 function _set_mute_state() {
     local value="$1"
 
@@ -494,6 +501,7 @@ function _set_mute_state() {
 }
 
 
+# shellcheck disable=SC2329
 function _set_curve_state() {
     if [[ "$1" == "toggle" ]]; then
         if [[ "$curve_state" -eq "$curve" ]]; then
@@ -513,7 +521,9 @@ function _set_curve_state() {
 }
 
 
+# shellcheck disable=SC2329
 function _start_socket() {
+    # shellcheck disable=SC2034
     coproc socket {
         socat UNIX-LISTEN:"$runtime_dir/state.sock",fork EXEC:"$0 _socket_handler"
     }
@@ -536,6 +546,7 @@ function _socket_handler() {
 }
 
 
+# shellcheck disable=SC2329
 function _stop_socket() {
     if [[ -n "${socket_PID:-}" ]]; then
         _kill_recursively "$socket_PID"
@@ -559,14 +570,18 @@ function _connect_nodes() {
 }
 
 
+# shellcheck disable=SC2329
 function _disconnect_nodes() {
     pw-link -d "${loudcomp_node_description:-}:output_FL" "${output_name:-}:playback_FL" 2>/dev/null || :
     pw-link -d "${loudcomp_node_description:-}:output_FR" "${output_name:-}:playback_FR" 2>/dev/null || :
 }
 
 
+# shellcheck disable=SC2329
 function _reload_config() {
+    # shellcheck disable=SC1091
     source "$config_dir/settings.env"
+    # shellcheck disable=SC1091
     source "$data_dir/state.env"
 
     if [[ -z "${highest_volume_limit:-}" || "${highest_volume_limit:-}" -gt 100 ]]; then
@@ -667,6 +682,7 @@ function _reload_config() {
 }
 
 
+# shellcheck disable=SC2329
 function _reload() {
     _disconnect_nodes
     _reload_config
@@ -674,6 +690,7 @@ function _reload() {
 }
 
 
+# shellcheck disable=SC2329
 function _switch() {
     if [[ "$1" =~ ^[0-9]+$ ]]; then
         switch_device="$(wpctl list | awk -v output_id="$1" '$1 == output_id {print $2}')"
@@ -707,6 +724,7 @@ function _auto_switch() {
 }
 
 
+# shellcheck disable=SC2329
 function _clean_up() {
     trap '' INT TERM
     trap - EXIT
@@ -751,6 +769,7 @@ function _start_daemon() {
             mkdir -m 700 "${runtime_dir%/*}" || :
             mkdir -m 700 "$runtime_dir" || :
         else
+            # shellcheck disable=SC2174
             mkdir -p -m 700 "$runtime_dir" || :
         fi
     else
@@ -770,7 +789,9 @@ function _start_daemon() {
     mkfifo "$runtime_dir/command_handler"
     exec 3<> "$runtime_dir/command_handler"
 
+    # shellcheck disable=SC1091
     source "$config_dir/settings.env"
+    # shellcheck disable=SC1091
     source "$data_dir/state.env"
 
 
@@ -791,6 +812,7 @@ function _start_daemon() {
     fi
 
 
+    # shellcheck disable=SC2034
     coproc pipewire {
         pipewire -c "$data_dir/loudcomp_node.conf" || { printf 'Pipewire failed\n' >&2; kill -USR1 "$main_pid"; }
     }
@@ -923,6 +945,7 @@ function _start_daemon() {
 }
 
 
+# shellcheck disable=SC2329
 function _stop_daemon() {
     exit 0
 }
@@ -1075,6 +1098,7 @@ function _main() {
             fi
         ;;
         "set-volume")
+            # shellcheck disable=SC1091
             [[ -f "$config_dir/settings.env" ]] && source "$config_dir/settings.env"
             if [[ -z "${2:-}" ]]; then
                 _print_message "stderr" "Invalid argument" "command value not specified"
@@ -1124,6 +1148,7 @@ function _main() {
             fi
         ;;
         "set-mute")
+            # shellcheck disable=SC1091
             [[ -f "$config_dir/settings.env" ]] && source "$config_dir/settings.env"
             if [[ -f "$runtime_dir/pw-loudcomp.lock" ]] || [[ "${system_fallback:-}" == true ]]; then
                 if [[ -z "${2:-}" ]]; then

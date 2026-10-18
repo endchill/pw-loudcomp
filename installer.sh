@@ -134,8 +134,10 @@ function _main() {
 
                         if [[ -n "${shell_filepath:-}" ]]; then
                             if [[ "${SHELL##*/}" == "fish" ]]; then
+                                # shellcheck disable=SC2016
                                 printf '\n# These three lines were added by pw-loudcomp\nset -x PATH "$HOME/.local/bin" $PATH\nset -x MANPATH "$XDG_DATA_HOME/man" $MANPATH\n' >> "$shell_filepath"
                             else
+                                # shellcheck disable=SC2016
                                 printf '\n# These three lines were added by pw-loudcomp\nexport PATH="$HOME/.local/bin:$PATH"\nexport MANPATH="$XDG_DATA_HOME/man:$MANPATH"\n' >> "$shell_filepath"
                             fi
                             $SHELL -c ". \"$shell_filepath\""
