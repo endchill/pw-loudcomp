@@ -9,10 +9,10 @@
 #CHEMA_OPT_BLT rm;Builtin replacment for system rm, id;Builtin replacment for system id, mkdir;Builtin replacment for system mkdir, mkfifo;Builtin replacment for system mkfifo, sleep;Builtin replacment for system sleep
 #CHEMA_END
 
+PS4='${BASH_SOURCE[0]##*/}: $?: $LINENO: '
+
 set -eu -o pipefail
 shopt -s extglob
-
-PS4='+ $LINENO: '
 
 
 if [ "${CLICOLOR_FORCE:-}" = 1 ] || { [ "${CLICOLOR:-}" = 1 ] && [ -t 1 ]; }; then
@@ -54,6 +54,15 @@ fi
 
 
 function _help() {
+    local file_descriptor stream_type
+    stream_type="$1"
+
+    if [[ "$stream_type" == "stdout" ]]; then
+        file_descriptor=1
+    elif [[ "$stream_type" == "stderr" ]]; then
+        file_descriptor=2
+    fi
+
     printf '%s\n' \
         "${BOLD}${RED}Usage:${RESET}" \
         "    ${GREEN}${name}${RESET} ${YELLOW}<command> [args]${RESET}" \
@@ -77,12 +86,54 @@ function _help() {
         "${BOLD}${RED}Arguments:${RESET}" \
         "    ${GREEN}2(+/-)${RESET}                      Sets an exact value                         ${CYAN}(volume, input-gain)${RESET}" \
         "    ${GREEN}2%(+/-)${RESET}                     Increases or decreases the value relatively ${CYAN}(volume, input-gain)${RESET}" \
-        "    ${GREEN}1/0/toggle${RESET}                  Sets a state                                ${CYAN}(set-mute, set-curve-state)${RESET}"
+        "    ${GREEN}1/0/toggle${RESET}                  Sets a state                                ${CYAN}(set-mute, set-curve-state)${RESET}" >& "$file_descriptor"
+}
+
+function _print_message() {
+    local file_descriptor stream_type what_failed reason
+    stream_type="$1"
+    reason="$2"
+    what_failed="${3:-}"
+
+    if [[ "$stream_type" == "stdout" ]]; then
+        file_descriptor=1
+    elif [[ "$stream_type" == "stderr" ]]; then
+        file_descriptor=2
+    fi
+
+    if [[ -n "${what_failed:-}" ]]; then
+        printf '%b%s%b: %s: %s\n' "$BOLD" "$name" "$RESET" "$what_failed" "$reason" >& "$file_descriptor"
+    else
+        printf '%b%s%b: %s\n' "$BOLD" "$name" "$RESET" "$reason" >& "$file_descriptor"
+    fi
 }
 
 
-function _try_message() {
-    printf 'Try %c%b%s --help%b%c for more information\n' "'" "$RED" "$name" "$RESET" "'" >&2
+function _print_log() {
+    local file_descriptor log_level_color stream_type message
+    log_level="$1"
+    stream_type="$2"
+    message="$3"
+
+    case "$log_level" in
+        "info")
+            log_level_color="$BLUE"
+        ;;
+        "warn")
+            log_level_color="$YELLOW"
+        ;;
+        "error")
+            log_level_color="$RED"
+        ;;
+    esac
+
+    if [[ "$stream_type" == "stdout" ]]; then
+        file_descriptor=1
+    elif [[ "$stream_type" == "stderr" ]]; then
+        file_descriptor=2
+    fi
+
+    printf '[%b%s%b] %s\n' "$log_level_color" "$log_level" "$RESET" "$message" >& "$file_descriptor"
 }
 
 
@@ -115,7 +166,7 @@ function _check_config() {
             printf 'Config created at %c%b%s%b%c\n' "'" "$GREEN" "$config_dir/settings.env" "$RESET" "'"
             printf 'Please edit the config to have the most accurate results\n'
         else
-            printf 'Operation cancelled\n'
+            printf 'OK!\n'
             return 0
         fi
     else
@@ -126,7 +177,7 @@ function _check_config() {
             printf 'Config created at %c%b%s%b%c\n' "'" "$GREEN" "$config_dir/settings.env" "$RESET" "'"
             printf 'Please edit the config to have the most accurate results\n'
         else
-            printf 'Operation cancelled\n'
+            printf 'OK!\n'
             return 0
         fi
     fi
@@ -553,7 +604,7 @@ function _reload_config() {
                 output_id="$(awk -v output_device="$output_device" '$2 == output_device {print $1}' <<< "$wpctl_list")"
             else
                 if [[ "$output_device_fallback" == "none" ]]; then
-                    printf '%b%s%b device not found\n' "$RED" "$output_device" "$RESET"
+                    _print_message "stderr" "No such device" "cannot find '${RED}${output_device}${RESET}'"
                     return 1
                 elif [[ "$output_device_fallback" == "auto" ]]; then
                     _get_output_info "$wpctl_list"
@@ -562,7 +613,7 @@ function _reload_config() {
                         output_name="$output_device_fallback"
                         output_id="$(awk -v output_device_fallback="$output_device_fallback" '$2 == output_device_fallback {print $1}' <<< "$wpctl_list")"
                     else
-                        printf '%b%s%b fallback device not found\n' "$RED" "$output_device_fallback" "$RESET"
+                        _print_message "stderr" "No such device" "cannot find fallback '${RED}${output_device_fallback}${RESET}'"
                         return 1
                     fi
                 fi
@@ -693,15 +744,7 @@ function _start_daemon() {
     trap '_clean_up; exit 143' TERM
     trap 'printf "Pipewire exited\n"; _clean_up; exit 1' USR1
 
-    if [[ -f "$config_dir/settings.env" ]]; then
-        source "$config_dir/settings.env"
-    else
-        printf 'Config not found\n' >&2
-        printf 'Did you try running %c%b%s create-config%b%c?\n' >&2 "'" "$RED" "$name" "$RESET" "'"
-        return 1
-    fi
-
-    [[ ! -d "$data_dir"    ]] && mkdir -p "$data_dir"
+    [[ ! -d "$data_dir" ]] && mkdir -p "$data_dir"
 
     if [[ "${runtime_dir%/user*}" == "/tmp" ]]; then
         if [[ ! -d "${runtime_dir%/*}" ]]; then
@@ -730,6 +773,24 @@ function _start_daemon() {
     source "$config_dir/settings.env"
     source "$data_dir/state.env"
 
+
+    if command -v play >/dev/null; then
+        sound_available=true
+
+        read -r sound_theme < <(kreadconfig6 --file kdeglobals --group Sounds --key Theme 2>/dev/null) || :
+
+        if [[ -z "${sound_theme:-}" ]]; then
+            if [[ "${XDG_CURRENT_DESKTOP:-}" == "KDE" ]]; then
+                sound_theme="ocean"
+            else
+                sound_theme="freedesktop"
+            fi
+        fi
+    elif [[ "$play_sound" == "true" ]]; then
+        _print_log "warn" "stderr" "sox 'play' command not found, no sound will play"
+    fi
+
+
     coproc pipewire {
         pipewire -c "$data_dir/loudcomp_node.conf" || { printf 'Pipewire failed\n' >&2; kill -USR1 "$main_pid"; }
     }
@@ -746,7 +807,7 @@ function _start_daemon() {
             output_id="$(awk -v output_device="$output_device" '$2 == output_device {print $1}' <<< "$wpctl_list")"
         else
             if [[ "$output_device_fallback" == "none" ]]; then
-                printf '%b%s%b device not found\n' "$RED" "$output_device" "$RESET"
+                _print_message "stderr" "No such device" "cannot find '${RED}${output_device}${RESET}'"
                 return 1
             elif [[ "$output_device_fallback" == "auto" ]]; then
                 _get_output_info "$wpctl_list"
@@ -755,7 +816,7 @@ function _start_daemon() {
                     output_name="$output_device_fallback"
                     output_id="$(awk -v output_device_fallback="$output_device_fallback" '$2 == output_device_fallback {print $1}' <<< "$wpctl_list")"
                 else
-                    printf '%b%s%b fallback device not found\n' "$RED" "$output_device_fallback" "$RESET"
+                    _print_message "stderr" "No such device" "cannot find fallback '${RED}${output_device_fallback}${RESET}'"
                     return 1
                 fi
             fi
@@ -877,8 +938,7 @@ function _main() {
 
     [[ -z "${USER:-}" ]] && USER="$(id -run 2>/dev/null)"
     [[ -z "${HOME:-}" ]] && IFS=':' read -r _ _ _ _ _ HOME _ < <(getent passwd "$USER")
-    [[ -z "${HOME:-}" ]] && { printf 'Unable to obtained variable %sHOME%s\n' "$CYAN" "$RESET" >&2; return 1; }
-
+    [[ -z "${HOME:-}" ]] && { _print_message "stderr" "Unbound variable" "cannot read 'HOME'"; return 1; }
 
     name="${0##*/}"
     main_pid="$$"
@@ -907,42 +967,24 @@ function _main() {
 
 
     set +e
+
     pw-cli info 0 &>/dev/null
-    set -e
 
     if [[ "$?" -ne 0 ]]; then
-        printf 'Operation failed\n' >&2
-        printf 'Is Pipewire running?\n' >&2
+        _print_message "stderr" "No such process" "cannot access pipewire"
         return 1
     fi
 
-
-    if command -v play >/dev/null; then
-        sound_available=true
-
-        read -r sound_theme < <(kreadconfig6 --file kdeglobals --group Sounds --key Theme 2>/dev/null) || :
-
-        if [[ -z "${sound_theme:-}" ]]; then
-            if [[ "${XDG_CURRENT_DESKTOP:-}" == "KDE" ]]; then
-                sound_theme="ocean"
-            else
-                sound_theme="freedesktop"
-            fi
-        fi
-    elif [[ "$play_sound" == "true" ]]; then
-        printf '%bWarning%b: command play from sox package not found, no sound will play\n' "$RED" "$RESET" >&2
-    fi
-
+    set -e
 
     case "${1:-}" in
         "--help"|"-h")
-            _help
+            _help "stdout"
             return 0
         ;;
         "start-daemon")
             if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
-                printf 'Operation failed\n' >&2
-                printf 'Daemon is already running\n' >&2
+                _print_message "stderr" "Daemon already running" "cannot start daemon"
                 return 1
             else
                 _start_daemon
@@ -957,7 +999,7 @@ function _main() {
                     declare -i inotifywait_PID
                     coproc inotifywait { inotifywait -q -m -e delete "$runtime_dir"; }
 
-                    trap 'kill "${inotifywait_PID:-}" 2>/dev/null' INT
+                    trap 'kill "${inotifywait_PID:-}" &>/dev/null' INT
 
                     printf '_stop_daemon\n' > "$runtime_dir/command_handler"
 
@@ -967,25 +1009,23 @@ function _main() {
                         fi
                     done <&"${inotifywait[0]}"
 
-                    kill "${inotifywait_PID:-}" 2>/dev/null
-                    systemd-notify --stopping 2>/dev/null || :
+                    kill "${inotifywait_PID:-}" &>/dev/null
+                    systemd-notify --stopping &>/dev/null || :
                 fi
 
                 return 0
             else
-                printf 'Operation failed\n' >&2
-                printf 'Is the daemon running?\n' >&2
+                _print_message "stderr" "No such process" "cannot access daemon"
                 return 1
             fi
         ;;
         "start-socket")
             if [[ ! -f "$runtime_dir/pw-loudcomp.lock" ]]; then
-                printf 'Operation failed\n' >&2
-                printf 'Is the daemon running?\n' >&2
+                _print_message "stderr" "No such process" "cannot access daemon"
                 return 1
             elif [[ -S "$runtime_dir/state.sock" ]]; then
-                printf 'Operation failed\n' >&2
-                printf 'Socket is already socket running\n' >&2
+                printf '%s: cannot start socket: Socket is already running\n' "$name" >&2
+                _print_message "stderr" "Address already in use" "cannot start socket"
                 return 1
             else
                 printf '_start_socket\n' > "$runtime_dir/command_handler"
@@ -1000,8 +1040,7 @@ function _main() {
                 printf '_stop_socket\n' > "$runtime_dir/command_handler"
                 return 0
             else
-                printf 'Operation failed\n' >&2
-                printf 'Is the socket running?\n' >&2
+                _print_message "stderr" "No such process" "cannot stop socket"
                 return 1
             fi
         ;;
@@ -1010,38 +1049,38 @@ function _main() {
                 printf '_reload\n' > "$runtime_dir/command_handler"
                 return 0
             else
-                printf 'Operation failed\n' >&2
-                printf 'Is the daemon running?\n' >&2
+                _print_message "stderr" "No such process" "cannot access daemon"
                 return 1
             fi
         ;;
         "set-input-gain")
             if [[ -z "${2:-}" ]]; then
-                printf 'You have to specify a value\n' >&2
-                _try_message
-                return 1
+                _print_message "stderr" "Invalid argument" "command value not specified"
+                _help "stderr"
+                return 2
             elif [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
                 if [[ "$2" =~ ^([0-9]+)%([+-])$ ]]; then
                     printf '_set_relative_input_gain %s %s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" > "$runtime_dir/command_handler"
                 elif [[ "$2" =~ ^(-?[0-9]+)$ ]]; then
                     printf '_set_input_gain %s\n' "$2" > "$runtime_dir/command_handler"
                 else
-                    printf 'Invalid format: %c%b%s%b%c\n' "'" "$RED" "$2" "$RESET" "'" >&2
-                    _try_message
-                    return 1
+                    _print_message "stderr" "Invalid argument" "'${RED}$2${RESET}'"
+                    printf '\n'
+                    _help "stderr"
+                    return 2
                 fi
             else
-                printf 'Operation failed\n' >&2
-                printf 'Is the daemon running?\n' >&2
+                _print_message "stderr" "No such process" "cannot access daemon"
                 return 1
             fi
         ;;
         "set-volume")
             [[ -f "$config_dir/settings.env" ]] && source "$config_dir/settings.env"
             if [[ -z "${2:-}" ]]; then
-                printf 'You have to specify a value\n' >&2
-                _try_message
-                return 1
+                _print_message "stderr" "Invalid argument" "command value not specified"
+                printf '\n'
+                _help "stderr"
+                return 2
             elif [[ "$2" =~ ^([0-9]+)%([+-])$ ]]; then
                 if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
                     printf "_set_relative_volume %s %s\n" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" > "$runtime_dir/command_handler"
@@ -1054,8 +1093,7 @@ function _main() {
                         play "/usr/share/sounds/$sound_theme/stereo/audio-volume-change.oga" 2>/dev/null &
                     fi
                 else
-                    printf 'Operation failed\n' >&2
-                    printf 'Is the daemon running?\n' >&2
+                    _print_message "stderr" "No such process" "cannot access daemon"
                     return 1
                 fi
             elif [[ "$2" =~ ^(0\.[0-9]+)$ ]]; then
@@ -1070,18 +1108,18 @@ function _main() {
                         play "/usr/share/sounds/$sound_theme/stereo/audio-volume-change.oga" 2>/dev/null &
                     fi
                 else
-                    printf 'Operation failed\n' >&2
-                    printf 'Is the daemon running?\n' >&2
+                    _print_message "stderr" "No such process" "cannot access daemon"
                     return 1
                 fi
             else
                 if [[ "$2" =~ ^([0-9]+)$ ]]; then
-                    printf 'Value is only from 0.00 to 1.00\n' >&2
-                    return 1
+                    _print_message "stderr" "value out of range (0.00 to 1.00)" "'${RED}$2${RESET}'"
+                    return 2
                 else
-                    printf 'Invalid format: %c%b%s%b%c\n' "'" "$RED" "$2" "$RESET" "'" >&2
-                    _try_message
-                    return 1
+                    _print_message "stderr" "Invalid argument" "'${RED}$2${RESET}'"
+                    printf '\n'
+                    _help "stderr"
+                    return 2
                 fi
             fi
         ;;
@@ -1089,12 +1127,13 @@ function _main() {
             [[ -f "$config_dir/settings.env" ]] && source "$config_dir/settings.env"
             if [[ -f "$runtime_dir/pw-loudcomp.lock" ]] || [[ "${system_fallback:-}" == true ]]; then
                 if [[ -z "${2:-}" ]]; then
-                    printf 'You have to specify a value\n' >&2
-                    return 1
+                    _print_message "stderr" "Invalid argument" "command value not specified"
+                    return 2
                 elif [[ ! "$2" =~ ^(1|0|toggle)$ ]]; then
-                    printf 'Invalid format: %c%b%s%b%c\n' "'" "$RED" "$2" "$RESET" "'" >&2
-                    _try_message
-                    return 1
+                    _print_message "stderr" "Invalid argument" "'${RED}$2${RESET}'"
+                    printf '\n'
+                    _help "stderr"
+                    return 2
                 elif [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
                     printf '_set_mute_state %s\n' "$2" > "$runtime_dir/command_handler"
                     return 0
@@ -1112,41 +1151,40 @@ function _main() {
                     return 0
                 fi
             else
-                printf 'Operation failed\n' >&2
-                printf 'Is the daemon running?\n' >&2
+                _print_message "stderr" "No such process" "cannot access daemon"
                 return 1
             fi
         ;;
         "set-curve-state")
             if [[ -z "${2:-}" ]]; then
-                printf 'You have to specify a value\n' >&2
-                return 1
+                _print_message "stderr" "Invalid argument" "command value not specified"
+                return 2
             elif [[ "$2" =~ ^(1|0|toggle)$ ]]; then
                 if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
                     printf '_set_curve_state %s\n' "$2" > "$runtime_dir/command_handler"
                     return 0
                 else
-                    printf 'Operation failed\n' >&2
-                    printf 'Is the daemon running?\n' >&2
+                    _print_message "stderr" "No such process" "cannot access daemon"
                     return 1
                 fi
             else
-                printf 'Invalid format: %c%b%s%b%c\n' "'" "$RED" "$2" "$RESET" "'" >&2
-                _try_message
-                return 1
+                _print_message "stderr" "Invalid argument" "'${RED}$2${RESET}'"
+                printf '\n'
+                _help "stderr"
+                return 2
             fi
         ;;
         "set")
             if [[ -z "${3:-}" ]]; then
-                printf 'You have to specify two values\n' >&2
-                _try_message
-                return 1
+                _print_message "stderr" "Invalid argument" "command second value not specified"
+                printf '\n'
+                _help "stderr"
+                return 2
             else
                 if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
                     printf 'set %s %s\n' "$2" "$3" > "$runtime_dir/command_handler"
                 else
-                    printf 'Operation failed\n' >&2
-                    printf 'Is the daemon running?\n' >&2
+                    _print_message "stderr" "No such process" "cannot access daemon"
                     return 1
                 fi
             fi
@@ -1156,14 +1194,16 @@ function _main() {
             return "$?"
         ;;
         "")
-            printf 'You have to specify a command\n' >&2
-            _try_message
-            return 1
+            _print_message "stderr" "Invalid argument" "command not specified"
+            printf '\n'
+            _help "stderr"
+            return 2
         ;;
         *)
-            printf 'Unknown command: %c%b%s%b%c\n' "'" "$RED" "$1" "$RESET" "'" >&2
-            _try_message
-            return 1
+            _print_message "stderr" "unknown command '${RED}${1}${RESET}'"
+            printf '\n'
+            _help "stderr"
+            return 2
         ;;
     esac
 }
