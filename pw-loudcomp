@@ -991,7 +991,7 @@ function _main() {
     fi
 
 
-    if pw-cli info 0; then
+    if ! pw-cli info 0 &>/dev/null; then
         _print_message "stderr" "No such process" "cannot access pipewire"
         return 1
     fi
