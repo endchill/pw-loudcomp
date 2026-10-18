@@ -44,7 +44,7 @@ date: 2026-08-22
 - **set-volume** _value_
   Sets a volume value or increases or decreases it.
 
-- **set-mute-state** _state_
+- **set-mute** _state_
   Specifies whether to mute or unmute the output device.
 
 - **set-curve-state** _state_
