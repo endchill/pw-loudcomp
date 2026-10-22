@@ -42,15 +42,15 @@ fi
 [ "${BASH_VERSINFO[0]}" -ge 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ] || { printf 'Bash version %b%d.%d%b is not support, please use version %b4.2%b or higher\n' "$RED" "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}" "$RESET" "$GREEN" "$RESET" >&2; exit 1; }
 
 
-#TODO add a custom config filepath option -c, --config
-#TODO add an option that controls the limit for wpctl when changing the volume while the daemon is not running -l, --limit
-#TODO fix _stop_socket function of not exiting correctly
-#TODO add logging when using start-daemon and maybe start-socket
-#TODO make inputGain variable in _send_state instead of holding $global_input_gain to hold the current device input gain
-#TODO make it reload when an audio device dis/connects
-#TODO add a version check for pipewire wireplumber and any other program that need to be added if an older version does not support a used feature
-#TODO add a variable check for configs when sourced, maybe a function like _source "<filepath>" that source the file too?
-#TODO add comments for only needed things
+#TODO * add a custom config filepath option -c, --config
+#TODO * fix _stop_socket function of not exiting correctly
+#TODO * make inputGain variable in _send_state instead of holding $global_input_gain to hold the current device input gain
+#TODO + add logging when using start-daemon and maybe start-socket
+#TODO + add a variable check for configs when sourced, maybe a function like _source "<filepath>" that source the file too?
+#TODO - add an option that controls the limit for wpctl when changing the volume while the daemon is not running -l, --limit
+#TODO - make it reload when an audio device dis/connects
+#TODO - add a version check for pipewire wireplumber and any other program that need to be added if an older version does not support a used feature
+#TODO - add comments for only needed things
 
 
 function _help() {
