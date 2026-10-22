@@ -1035,6 +1035,8 @@ function _main() {
                     done <&"${inotifywait[0]}"
 
                     kill "${inotifywait_PID:-}" &>/dev/null
+
+                    sleep 1s
                     systemd-notify --stopping &>/dev/null || :
                 fi
 
