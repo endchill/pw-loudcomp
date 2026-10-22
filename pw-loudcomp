@@ -423,16 +423,23 @@ function _set_input_gain() {
     { _send_state; _save_state; } &
 
     if [[ "$is_custom_input_gain" == true ]]; then
-        settings_filepath_tmp="$(<"$config_dir/settings.env")"
-        settings_filepath_tmp="${settings_filepath_tmp//${custom_input_gain}=*([!$nl])/${custom_input_gain}=${global_input_gain}}"
-        printf '%s' "$settings_filepath_tmp" > "$config_dir/settings.env.tmp"
-        mv "$config_dir/settings.env.tmp" "$config_dir/settings.env"
+        key="$custom_input_gain"
     else
-        settings_filepath_tmp="$(<"$config_dir/settings.env")"
-        settings_filepath_tmp="${settings_filepath_tmp//global_input_gain=*([!$nl])/global_input_gain=${global_input_gain}}"
-        printf '%s' "$settings_filepath_tmp" > "$config_dir/settings.env.tmp"
-        mv "$config_dir/settings.env.tmp" "$config_dir/settings.env"
+        key="global_input_gain"
     fi
+
+    settings_filepath_tmp=""
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" == "${key}="* ]]; then
+            rest="${line#"${key}="}"
+            value="${rest%%[[:space:]]*}"
+            line="${key}=${global_input_gain}${rest#"$value"}"
+        fi
+        settings_filepath_tmp+="$line"$'\n'
+    done < "$config_dir/settings.env"
+
+    printf '%s' "$settings_filepath_tmp" > "$config_dir/settings.env.tmp"
+    mv "$config_dir/settings.env.tmp" "$config_dir/settings.env"
 }
 
 
@@ -967,8 +974,6 @@ function _main() {
 
     name="${0##*/}"
     main_pid="$$"
-    nl=$'\n'
-
     config_dir="${XDG_CONFIG_HOME:-"$HOME/.config"}/$name"
     data_dir="${XDG_DATA_HOME:-"$HOME/.local/share"}/$name"
 
