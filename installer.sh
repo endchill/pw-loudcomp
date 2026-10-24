@@ -107,7 +107,7 @@ function _main() {
                     mandb --quiet --user-db
                 fi
 
-                if [[ "$PATH" == *"$HOME/.local/bin"* ]]; then
+                if [[ "$PATH" != *"$HOME/.local/bin"* ]]; then
                     trap "printf '\nOperation cancelled\n'; exit 0" INT TERM
                     printf '%b%s%b not found in %bPATH%b. Do you want to add it to %b%s%b? [%bY%b/%bn%b] ' "$BLUE" "$user_bin_dir" "$RESET" "$CYAN" "$RESET" "$MAGENTA" "${SHELL##*/}" "$RESET" "$GREEN" "$RESET" "$RED" "$RESET"
                     read -r answer
