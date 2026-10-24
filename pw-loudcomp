@@ -4,8 +4,8 @@
 # SPDX-FileCopyrightText: 2026 ENDChill
 
 # These lines are used by chemability for checking commands/builtins availability https://github.com/endchill/chemability
-#CHEMA_REQ awk, grep, jq, mkdir, mkfifo, pw-cli, rm, sleep
-#CHEMA_OPT getent;Fallback if HOME was unset, id;Fallback if USER was unset, qdbus6;For KDE Plasma integration, socat;Used to handle the socket, sox;For playing sound when volume changes, systemd-notify;For systemd integration
+#CHEMA_REQ sleep
+#CHEMA_OPT getent;Fallback if HOME was unset, id;Fallback if USER was unset, qdbus6;For KDE Plasma integration, socat;Used to handle the socket, sox;For playing sound when volume changes
 #CHEMA_OPT_BLT rm;Builtin replacment for system rm, id;Builtin replacment for system id, mkdir;Builtin replacment for system mkdir, mkfifo;Builtin replacment for system mkfifo, sleep;Builtin replacment for system sleep
 #CHEMA_END
 

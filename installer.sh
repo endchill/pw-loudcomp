@@ -4,9 +4,11 @@
 # SPDX-FileCopyrightText: 2026 ENDChill
 
 # These lines are used by chemability for checking commands/builtins availability https://github.com/endchill/chemability
-#CHEMA_REQ systemctl;For systemd integration
 #CHEMA_OPT mandb;For updating man database
 #CHEMA_OPT_BLT chmod;Builtin replacment for system chmod, rm;Builtin replacment for system rm, mkdir;Builtin replacment for system mkdir
+#CHEMA_CMD_apt_install awk, inotify-tools, lsp-plugins-lv2, pipewire, socat, sox, wireplumber, jq
+#CHEMA_CMD_dnf_install awk, inotify-tools, lsp-plugins-lv2, pipewire, socat, sox, wireplumber, jq
+#CHEMA_CMD_paru_-S_--needed_--noconfirm awk, inotify-tools, lsp-plugins-lv2, pipewire, socat, sox, wireplumber, jq
 #CHEMA_END
 
 set -eu -o pipefail
@@ -89,6 +91,8 @@ function _main() {
 
         case "${answer,,}" in
             ""|"i")
+                "${BASH_SOURCE[0]%/*}/chemability/chemability" "${BASH_SOURCE[0]%/*}/pw-loudcomp" "${BASH_SOURCE[0]%/*}/installer.sh"
+
                 [[ ! -d "$user_bin_dir"           ]] && mkdir -p "$user_bin_dir"
                 [[ ! -d "$man_page_dir/man1"      ]] && mkdir -p "$man_page_dir/man1"
                 [[ ! -d "$man_page_dir/man5"      ]] && mkdir -p "$man_page_dir/man5"
