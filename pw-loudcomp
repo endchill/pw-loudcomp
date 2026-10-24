@@ -623,7 +623,7 @@ function _reload_config() {
         if [[ "$output_device" == "auto" ]]; then
             _get_output_info "$wpctl_list"
         else
-            if grep --quiet "$output_device" <<< "$wpctl_list"; then
+            if [[ "$wpctl_list" == *"$output_device"* ]]; then
                 output_name="$output_device"
                 output_id="$(awk -v output_device="$output_device" '$2 == output_device {print $1}' <<< "$wpctl_list")"
             else
@@ -633,7 +633,7 @@ function _reload_config() {
                 elif [[ "$output_device_fallback" == "auto" ]]; then
                     _get_output_info "$wpctl_list"
                 else
-                    if grep --quiet "$output_device_fallback" <<< "$wpctl_list"; then
+                    if [[ "$wpctl_list" == *"$output_device_fallback"* ]]; then
                         output_name="$output_device_fallback"
                         output_id="$(awk -v output_device_fallback="$output_device_fallback" '$2 == output_device_fallback {print $1}' <<< "$wpctl_list")"
                     else
@@ -654,7 +654,8 @@ function _reload_config() {
         read -r _ output_volume _ < <(wpctl get-volume "$output_id")
 
         if [[ "${system_transfer:-}" == true ]]; then
-            if wpctl get-volume "$output_id" | grep --quiet '[MUTED]'; then
+            notify-send 'Test'
+            if [[ "$(wpctl get-volume "$output_id")" == *"[MUTED]"* ]]; then
                 mute_state=1
             else
                 mute_state=0
@@ -833,7 +834,7 @@ function _start_daemon() {
     if [[ "$output_device" == "auto" ]]; then
         _get_output_info "$wpctl_list"
     else
-        if grep --quiet "$output_device" <<< "$wpctl_list"; then
+        if [[ "$wpctl_list" == *"$output_device"* ]]; then
             output_name="$output_device"
             output_id="$(awk -v output_device="$output_device" '$2 == output_device {print $1}' <<< "$wpctl_list")"
         else
@@ -843,7 +844,7 @@ function _start_daemon() {
             elif [[ "$output_device_fallback" == "auto" ]]; then
                 _get_output_info "$wpctl_list"
             else
-                if grep --quiet "$output_device_fallback" <<< "$wpctl_list"; then
+                if [[ "$wpctl_list" == *"$output_device_fallback"* ]]; then
                     output_name="$output_device_fallback"
                     output_id="$(awk -v output_device_fallback="$output_device_fallback" '$2 == output_device_fallback {print $1}' <<< "$wpctl_list")"
                 else
@@ -876,7 +877,7 @@ function _start_daemon() {
 
 
     if [[ "${system_transfer:-}" == true ]]; then
-        if wpctl get-volume "$output_id" | grep --quiet '[MUTED]'; then
+        if [[ "$(wpctl get-volume "$output_id")" == *"[MUTED]"* ]]; then
             mute_state=1
         else
             mute_state=0
@@ -1171,7 +1172,7 @@ function _main() {
                     wpctl_get_volume="$(wpctl get-volume @DEFAULT_AUDIO_SINK@)"
 
                     if [[ "${XDG_CURRENT_DESKTOP:-}" == "KDE" ]]; then
-                        if grep --quiet '[MUTED]' <<< "$wpctl_get_volume"; then
+                        if [[ "$wpctl_get_volume" == *"[MUTED]"* ]]; then
                             qdbus6 org.kde.plasmashell /org/kde/osdService org.kde.osdService.volumeChanged 0 2>/dev/null &
                         else
                             qdbus6 org.kde.plasmashell /org/kde/osdService org.kde.osdService.volumeChanged "$(awk -v volume="${wpctl_get_volume:8}" 'BEGIN {printf "%.0f\n", volume * 100}')" 2>/dev/null &
