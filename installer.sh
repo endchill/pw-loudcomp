@@ -19,7 +19,7 @@ if [ "${CLICOLOR_FORCE:-}" = 1 ] || { [ "${CLICOLOR:-}" = 1 ] && [ -t 1 ]; }; th
     BOLD="$(printf '\033[1m')"
     RED="$(printf '\033[31m')"
     GREEN="$(printf '\033[32m')"
-    # YELLOW="$(printf '\033[33m')"
+    YELLOW="$(printf '\033[33m')"
     BLUE="$(printf '\033[34m')"
     MAGENTA="$(printf '\033[35m')"
     CYAN="$(printf '\033[36m')"
@@ -29,7 +29,7 @@ else
     BOLD=""
     RED=""
     GREEN=""
-    # YELLOW=""
+    YELLOW=""
     BLUE=""
     MAGENTA=""
     CYAN=""
@@ -86,7 +86,12 @@ function _main() {
 
 
     while true; do
-        printf '(I)nstall pw-loudcomp\n(u)ninstall pw-loudcomp\n(q)uit installer\nOption: '
+        printf \
+'(%bI%b)nstall pw-loudcomp
+(%bu%b)ninstall pw-loudcomp
+(%bq%b)uit installer
+Option: ' \
+"$GREEN" "$RESET" "$RED" "$RESET" "$YELLOW" "$RESET"
         read -r answer
 
         case "${answer,,}" in
