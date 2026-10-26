@@ -43,7 +43,6 @@ fi
 
 
 #TODO * add a custom config filepath option -c, --config
-#TODO * fix _stop_socket function of not exiting correctly
 #TODO * make inputGain variable in _send_state instead of holding $global_input_gain to hold the current device input gain
 #TODO + add logging when using start-daemon and maybe start-socket
 #TODO + add a variable check for configs when sourced, maybe a function like _source "<filepath>" that source the file too?
@@ -112,26 +111,22 @@ function _print_message() {
 function _print_log() {
     local file_descriptor log_level_color stream_type message
     log_level="$1"
-    stream_type="$2"
-    message="$3"
+    message="$2"
 
     case "$log_level" in
         "info")
             log_level_color="$BLUE"
+            file_descriptor=1
         ;;
         "warn")
             log_level_color="$YELLOW"
+            file_descriptor=2
         ;;
         "error")
             log_level_color="$RED"
+            file_descriptor=2
         ;;
     esac
-
-    if [[ "$stream_type" == "stdout" ]]; then
-        file_descriptor=1
-    elif [[ "$stream_type" == "stderr" ]]; then
-        file_descriptor=2
-    fi
 
     printf '[%b%s%b] %s\n' "$log_level_color" "$log_level" "$RESET" "$message" >& "$file_descriptor"
 }
@@ -561,15 +556,31 @@ function _set_curve_state() {
 
 # shellcheck disable=SC2329
 function _start_socket() {
+    trap '_stop_socket' EXIT
+    trap '_stop_socket; exit 130' INT
+    trap '_stop_socket; exit 143' TERM
+
+    # shellcheck disable=SC2174
+    [[ ! -d "$runtime_dir" ]] && mkdir -p -m 700 "$runtime_dir"
+
     # shellcheck disable=SC2034
     coproc socket {
         exec socat UNIX-LISTEN:"$runtime_dir/state.sock",fork EXEC:"$0 _socket_handler"
     }
+
+    # shellcheck disable=SC2154
     printf '%s\n' "$socket_PID" > "$runtime_dir/socket_pid"
+
+    _print_log "info" "socket is running"
+
+    wait "$socket_PID"
 }
 
 
 function _socket_handler() {
+    trap '' INT TERM
+    trap - EXIT
+
     fifo_filepath="$runtime_dir/$$"
     mkfifo "$fifo_filepath"
     trap 'rm "$fifo_filepath"' EXIT
@@ -586,12 +597,16 @@ function _socket_handler() {
 
 # shellcheck disable=SC2329
 function _stop_socket() {
-    if [[ -n "${socket_PID:-}" ]]; then
-        _kill_recursively "$socket_PID"
+    if [[ -e "$runtime_dir/socket_pid" ]]; then
+        _kill_recursively "$(<"$runtime_dir/socket_pid")"
 
-        for pipe in "$runtime_dir"/*;do
-            [[ -p "$pipe" ]] && rm "$pipe"
+        for pipe_filename in "$runtime_dir"/*;do
+            if [[ -p "$pipe_filename" ]] && [[ "$pipe_filename" != "$runtime_dir/command_handler" ]]; then
+                rm "$pipe_filename"
+            fi
         done
+
+        rm "$runtime_dir/socket_pid"
     fi
 }
 
@@ -796,24 +811,14 @@ function _clean_up() {
 
 
 function _start_daemon() {
-    trap '_clean_up; exit 0' EXIT
+    trap '_clean_up' EXIT
     trap '_clean_up; exit 130' INT
     trap '_clean_up; exit 143' TERM
     trap 'printf "Pipewire exited\n"; _clean_up; exit 1' USR1
 
-    [[ ! -d "$data_dir" ]] && mkdir -p "$data_dir"
-
-    if [[ "${runtime_dir%/user*}" == "/tmp" ]]; then
-        if [[ ! -d "${runtime_dir%/*}" ]]; then
-            mkdir -m 700 "${runtime_dir%/*}" || :
-            mkdir -m 700 "$runtime_dir" || :
-        else
-            # shellcheck disable=SC2174
-            mkdir -p -m 700 "$runtime_dir" || :
-        fi
-    else
-        [[ ! -d "$runtime_dir" ]] && mkdir -p "$runtime_dir"
-    fi
+    [[ ! -d "$data_dir"    ]] && mkdir -p "$data_dir"
+    # shellcheck disable=SC2174
+    [[ ! -d "$runtime_dir" ]] && mkdir -p -m 700 "$runtime_dir"
 
     [[ ! -f "$config_dir/settings.env"        ]] && _create_config "$config_dir/settings.env"
     [[ ! -f "$data_dir/state.env"             ]] && _create_state_file "$data_dir/state.env"
@@ -847,7 +852,7 @@ function _start_daemon() {
             fi
         fi
     elif [[ "$play_sound" == "true" ]]; then
-        _print_log "warn" "stderr" "sox 'play' command not found, no sound will play"
+        _print_log "warn" "sox 'play' command not found, no sound will play"
     fi
 
     _create_loudcomp_node
@@ -940,7 +945,9 @@ function _start_daemon() {
     [[ "${auto_switch:-}" == true ]] && _start_auto_switch
 
 
-    systemd-notify --ready 2>/dev/null || :
+    [[ "${is_systemd_used:-}" == true ]] && systemd-notify --ready 2>/dev/null
+
+    _print_log "info" "daemon is running"
 
 
     while read -r cmd arg1 arg2; do
@@ -966,10 +973,13 @@ function _stop_daemon() {
 
 
 function _main() {
+    name="${0##*/}"
     builtins=("rm" "id" "mkdir" "mkfifo" "sleep")
 
     for builtin in "${builtins[@]}";do
-        enable "$builtin" 2>/dev/null || { command -v "$builtin" >/dev/null && printf '%bWarning%b: Failed to load %c%b%s%b%c builtin, fallback to %c%b%s%b%c binary\n' "$YELLOW" "$RESET" "'" "$GRAY" "$builtin" "$RESET" "'" "'" "$MAGENTA" "$builtin" "$RESET" "'"; }
+        if ! enable "$builtin" 2>/dev/null && command -v "$builtin" >/dev/null; then
+            _print_message "stderr" "failed to load '${GRAY}${builtin}${RESET}' builtin, falling back to '${MAGENTA}${builtin}${RESET}' binary"
+        fi
     done
 
 
@@ -977,7 +987,6 @@ function _main() {
     [[ -z "${HOME:-}" ]] && IFS=':' read -r _ _ _ _ _ HOME _ < <(getent passwd "$USER")
     [[ -z "${HOME:-}" ]] && { _print_message "stderr" "Unbound variable" "cannot read 'HOME'"; return 1; }
 
-    name="${0##*/}"
     main_pid="$$"
     config_dir="${XDG_CONFIG_HOME:-"$HOME/.config"}/$name"
     data_dir="${XDG_DATA_HOME:-"$HOME/.local/share"}/$name"
@@ -993,6 +1002,7 @@ function _main() {
     loudcomp_node_name="${loudcomp_node_description// /-}"
     loudcomp_node_name="${loudcomp_node_name,,}"
 
+    [[ -e "/run/systemd/system" ]] && is_systemd_used=true
 
 
     if [[ -z "${PIPEWIRE_RUNTIME_DIR:-}" ]] && [[ -z "${XDG_RUNTIME_DIR:-}" ]]; then
@@ -1014,17 +1024,30 @@ function _main() {
         ;;
         "start-daemon")
             if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
-                _print_message "stderr" "Daemon already running" "cannot start daemon"
+                if [[ "${is_systemd_used:-}" == true ]] && systemctl --user is-active pw-loudcompd.service >/dev/null; then
+                    _print_message "stderr" "Daemon already running via systemd service" "cannot start daemon"
+                else
+                    _print_message "stderr" "Daemon already running" "cannot start daemon"
+                fi
+
                 return 1
             else
-                _start_daemon
-                return "$?"
+                # if [[ -t 0 ]] [[ "${is_systemd_used:-}" == true ]]; then
+                #     systemctl --user start pw-loudcompd.service
+                #     _print_message "stdout" "daemon has been started via systemd service"
+                #     return 0
+                # else
+                    _start_daemon
+                    return "$?"
+                # fi
             fi
         ;;
         "stop-daemon")
             if [[ -f "$runtime_dir/pw-loudcomp.lock" ]]; then
-                if systemctl --user is-active pw-loudcompd >/dev/null; then
-                    systemctl --user stop pw-loudcompd
+                if [[ -t 0 ]] && [[ "${is_systemd_used:-}" == true ]] && systemctl --user is-active pw-loudcompd.service &>/dev/null; then
+                    systemctl --user stop pw-loudcompd.service
+                    _print_message "stdout" "daemon has been stopped via systemd socket"
+                    return 0
                 else
                     coproc inotifywait { exec inotifywait -q -m -e delete "$runtime_dir"; }
 
@@ -1042,7 +1065,8 @@ function _main() {
                     kill "${inotifywait_PID:-}" &>/dev/null
 
                     sleep 1s
-                    systemd-notify --stopping &>/dev/null || :
+
+                    [[ "${is_systemd_used:-}" == true ]] && systemd-notify --stopping &>/dev/null
                 fi
 
                 return 0
@@ -1052,28 +1076,46 @@ function _main() {
             fi
         ;;
         "start-socket")
-            if [[ ! -f "$runtime_dir/pw-loudcomp.lock" ]]; then
-                _print_message "stderr" "No such process" "cannot access daemon"
-                return 1
-            elif [[ -S "$runtime_dir/state.sock" ]]; then
-                printf '%s: cannot start socket: Socket is already running\n' "$name" >&2
-                _print_message "stderr" "Address already in use" "cannot start socket"
-                return 1
+            if [[ "${is_systemd_used:-}" == true ]]; then
+                if systemctl --user is-active pw-loudcomp-socket.socket &>/dev/null; then
+                    _print_message "stderr" "Socket already running via systemd socket" "cannot start socket"
+                    return 1
+                # else
+                #     systemctl --user start pw-loudcomp-socket.socket
+                #     _print_message "stdout" "socket has been started via systemd socket"
+                #     return 0
+                fi
             else
-                printf '_start_socket\n' > "$runtime_dir/command_handler"
-                return 0
+                if [[ -S "$runtime_dir/state.sock" ]]; then
+                    _print_message "stderr" "Socket already running" "cannot start socket"
+                    return 1
+                else
+                    _start_socket
+                    return 0
+                fi
             fi
         ;;
         "_socket_handler")
             _socket_handler
         ;;
         "stop-socket")
-            if [[ -f "$runtime_dir/socket_pid" ]]; then
-                printf '_stop_socket\n' > "$runtime_dir/command_handler"
-                return 0
+            if [[ "${is_systemd_used:-}" == true ]]; then
+                if systemctl --user is-active pw-loudcomp-socket.socket &>/dev/null; then
+                    systemctl --user stop pw-loudcomp-socket.socket
+                    _print_message "stdout" "socket has been stopped via systemd socket"
+                    return 0
+                else
+                    _print_message "stderr" "No such process" "cannot stop socket"
+                    return 1
+                fi
             else
-                _print_message "stderr" "No such process" "cannot stop socket"
-                return 1
+                if [[ -S "$runtime_dir/state.sock" ]]; then
+                    _stop_socket
+                    return 0
+                else
+                    _print_message "stderr" "No such process" "cannot stop socket"
+                    return 1
+                fi
             fi
         ;;
         "reload")
