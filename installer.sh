@@ -96,7 +96,7 @@ Option: ' \
 
         case "${answer,,}" in
             ""|"i")
-                "${BASH_SOURCE[0]%/*}/chemability/chemability" "${BASH_SOURCE[0]%/*}/pw-loudcomp" "${BASH_SOURCE[0]%/*}/installer.sh"
+                "${BASH_SOURCE[0]%/*}/chemability" "${BASH_SOURCE[0]%/*}/pw-loudcomp" "${BASH_SOURCE[0]%/*}/installer.sh"
 
                 [[ ! -d "$user_bin_dir"           ]] && mkdir -p "$user_bin_dir"
                 [[ ! -d "$man_page_dir/man1"      ]] && mkdir -p "$man_page_dir/man1"
