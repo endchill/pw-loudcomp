@@ -477,6 +477,10 @@ function _set_volume() {
         volume="$1"
     fi
 
+    [[ "$volume" -eq "${previous_volume:-}" ]] && return
+
+    previous_volume="$volume"
+
     if [[ "$mute_state" -eq 1 ]]; then
         wpctl set-mute "$output_id" 0
         mute_state=0
@@ -662,17 +666,11 @@ function _reload_config() {
     # shellcheck disable=SC1091
     source "$data_dir/state.env"
 
-    if [[ -z "${highest_volume_limit:-}" || "${highest_volume_limit:-}" -gt 100 ]]; then
-        highest_volume_limit=100
-    elif [[ -z "${lowest_volume_limit:-}" || "${lowest_volume_limit:-}" -lt 0 ]]; then
-        lowest_volume_limit=0
-    fi
+    [[ -z "${highest_volume_limit:-}" || "${highest_volume_limit:-}" -gt 100 ]] && highest_volume_limit=100
+    [[ -z "${lowest_volume_limit:-}"  || "${lowest_volume_limit:-}"  -lt 0   ]] && lowest_volume_limit=0
 
-    if [[ "$volume" -gt "$highest_volume_limit" ]]; then
-        volume="$highest_volume_limit"
-    elif [[ "$volume" -lt "$lowest_volume_limit"  ]]; then
-        volume="$lowest_volume_limit"
-    fi
+    [[ "$volume" -gt "$highest_volume_limit" ]] && volume="$highest_volume_limit"
+    [[ "$volume" -lt "$lowest_volume_limit"  ]] && volume="$lowest_volume_limit"
 
     raw_volume="$(awk -v volume="$volume" -v vce="$volume_curve_exponent" 'BEGIN {printf "%.6f\n", 20 * log((volume / 100) ^ vce) / log(10)}')"
     [[ "$raw_volume" == "-inf" ]] && raw_volume=-83
@@ -906,16 +904,15 @@ function _start_daemon() {
 
     volume="$(awk -v raw_volume="$raw_volume" -v vce="$volume_curve_exponent" 'BEGIN {printf "%.0f", 100 * (10 ^ (raw_volume / (20 * vce)))}' )"
 
-    if [[ -z "${highest_volume_limit:-}" || "${highest_volume_limit:-}" -gt 100 ]]; then
-        highest_volume_limit=100
-    elif [[ -z "${lowest_volume_limit:-}" || "${lowest_volume_limit:-}" -lt 0 ]]; then
-        lowest_volume_limit=0
-    fi
+    [[ -z "${highest_volume_limit:-}" || "${highest_volume_limit:-}" -gt 100 ]] && highest_volume_limit=100
+    [[ -z "${lowest_volume_limit:-}"  || "${lowest_volume_limit:-}"  -lt 0   ]] && lowest_volume_limit=0
 
     if [[ "$volume" -gt "$highest_volume_limit" ]]; then
         volume="$highest_volume_limit"
         raw_volume="$(awk -v volume="$volume" -v vce="$volume_curve_exponent" 'BEGIN {printf "%.6f\n", 20 * log((volume / 100) ^ vce) / log(10)}')"
-    elif [[ "$volume" -lt "$lowest_volume_limit"  ]]; then
+    fi
+
+    if [[ "$volume" -lt "$lowest_volume_limit"  ]]; then
         volume="$lowest_volume_limit"
         raw_volume="$(awk -v volume="$volume" -v vce="$volume_curve_exponent" 'BEGIN {printf "%.6f\n", 20 * log((volume / 100) ^ vce) / log(10)}')"
     fi
