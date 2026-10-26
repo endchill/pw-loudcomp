@@ -447,7 +447,7 @@ function _set_input_gain() {
     fi
 
 
-    pw-cli set-param "$loudcomp_node_id" 2 "{ \"params\": [ \"loudcomp:input\", $raw_input_gain ] }"
+    _pwcli_set_param 2 "{ \"params\": [ \"loudcomp:input\", $raw_input_gain ] }"
     [[ "${auto_adjust_trigger:-}" == true ]] && wpctl set-mute "$output_id" 0
     { _send_state; _save_state; } &
 
@@ -490,7 +490,7 @@ function _set_volume() {
     raw_volume="$(awk -v volume="$volume" -v vce="$volume_curve_exponent" 'BEGIN {printf "%.6f\n", 20 * log((volume / 100) ^ vce) / log(10)}')"
     [[ "$raw_volume" == "-inf"  ]] && raw_volume=-83
 
-    pw-cli set-param "$loudcomp_node_id" 2 "{ \"params\": [ \"loudcomp:volume\", $raw_volume ] }" >/dev/null
+    _pwcli_set_param 2 "{ \"params\": [ \"loudcomp:volume\", $raw_volume ] }"
     { _send_state; _save_state; } &
 }
 
@@ -554,7 +554,7 @@ function _set_curve_state() {
     fi
 
 
-    pw-cli set-param "$loudcomp_node_id" 2 "{ \"params\": [ \"loudcomp:std\", $curve_state ] }" >/dev/null
+    _pwcli_set_param 2 "{ \"params\": [ \"loudcomp:std\", $curve_state ] }"
     { _send_state; _save_state; } &
 }
 
@@ -563,7 +563,7 @@ function _set_curve_state() {
 function _start_socket() {
     # shellcheck disable=SC2034
     coproc socket {
-        socat UNIX-LISTEN:"$runtime_dir/state.sock",fork EXEC:"$0 _socket_handler"
+        exec socat UNIX-LISTEN:"$runtime_dir/state.sock",fork EXEC:"$0 _socket_handler"
     }
     printf '%s\n' "$socket_PID" > "$runtime_dir/socket_pid"
 }
@@ -593,6 +593,31 @@ function _stop_socket() {
             [[ -p "$pipe" ]] && rm "$pipe"
         done
     fi
+}
+
+
+function _create_loudcomp_node() {
+    # shellcheck disable=SC2034
+    coproc loudcomp_node {
+        pipewire -c "$data_dir/loudcomp_node.conf" || { printf 'Pipewire failed\n' >&2; kill -USR1 "$main_pid"; }
+    }
+}
+
+
+
+function _start_pwcli_handler() {
+    # shellcheck disable=SC2034
+    coproc pwcli_handler {
+        exec pw-cli &>/dev/null
+    }
+}
+
+
+function _pwcli_set_param() {
+    local param_id="$1"
+    local json="$2"
+
+    printf 'set-param %s %s %s\n' "$loudcomp_node_id" "$param_id" "$json" >& "${pwcli_handler[1]}"
 }
 
 
@@ -690,7 +715,7 @@ function _reload_config() {
     raw_input_gain="$(awk -v input_gain="$global_input_gain" 'BEGIN {printf "%.6f\n", (10 ^ (input_gain / 20))}')"
 
 
-    pw-cli set-param "$loudcomp_node_id" 2 "{ \"params\": [ \"loudcomp:input\", $raw_input_gain, \"loudcomp:mode\", $processing_mode, \"loudcomp:fft\", $fft_quality, \"loudcomp:approx\", $iir_approx, \"loudcomp:std\", $curve, \"loudcomp:hclip\", $is_clipping, \"loudcomp:hcrange\", $clipping_range, \"loudcomp:volume\", $raw_volume ] }" >/dev/null
+    _pwcli_set_param 2 "{ \"params\": [ \"loudcomp:input\", $raw_input_gain, \"loudcomp:mode\", $processing_mode, \"loudcomp:fft\", $fft_quality, \"loudcomp:approx\", $iir_approx, \"loudcomp:std\", $curve, \"loudcomp:hclip\", $is_clipping, \"loudcomp:hcrange\", $clipping_range, \"loudcomp:volume\", $raw_volume ] }"
     { _send_state; _save_state; } &
 }
 
@@ -715,7 +740,7 @@ function _switch() {
 }
 
 
-function _auto_reload() {
+function _start_auto_reload() {
     coproc auto_reload {
         while read -r _ _ filename; do
             if [[ "$filename" == "settings.env" ]]; then
@@ -726,7 +751,7 @@ function _auto_reload() {
 }
 
 
-function _auto_switch() {
+function _start_auto_switch() {
     coproc auto_switch {
         while read -r id; do
             if [[ -n "$id" ]]; then
@@ -747,10 +772,11 @@ function _clean_up() {
 
     (: >&3) 2>/dev/null && exec 3>&-
 
-    _kill_recursively "${pipewire_PID:-}"
+    _kill_recursively "${socket_PID:-}"
+    _kill_recursively "${loudcomp_node_PID:-}"
+    _kill_recursively "${pwcli_handler_PID:-}"
     _kill_recursively "${auto_reload_PID:-}"
     _kill_recursively "${auto_switch_PID:-}"
-    _kill_recursively "${socket_PID:-}"
 
     if [[ -n "${output_id:-}" ]]; then
         if [[ "${system_transfer:-}" == true ]]; then
@@ -824,11 +850,7 @@ function _start_daemon() {
         _print_log "warn" "stderr" "sox 'play' command not found, no sound will play"
     fi
 
-
-    # shellcheck disable=SC2034
-    coproc pipewire {
-        pipewire -c "$data_dir/loudcomp_node.conf" || { printf 'Pipewire failed\n' >&2; kill -USR1 "$main_pid"; }
-    }
+    _create_loudcomp_node
 
     sleep 0.1s
 
@@ -896,11 +918,14 @@ function _start_daemon() {
 
     loudcomp_node_id="$(pw-dump | jq -r '.[] | select(.type=="PipeWire:Interface:Node") | select(.info.props["node.name"]=="effect_input.loudcomp") | .id')"
 
+    _start_pwcli_handler
+
+    sleep 0.05s
 
     _connect_nodes
 
 
-    pw-cli set-param "$loudcomp_node_id" 2 "{ \"params\": [ \"loudcomp:input\", $raw_input_gain, \"loudcomp:mode\", $processing_mode, \"loudcomp:fft\", $fft_quality, \"loudcomp:approx\", $iir_approx, \"loudcomp:std\", $curve, \"loudcomp:hclip\", $is_clipping, \"loudcomp:hcrange\", $clipping_range, \"loudcomp:volume\", $raw_volume ] }" >/dev/null
+    _pwcli_set_param 2 "{ \"params\": [ \"loudcomp:input\", $raw_input_gain, \"loudcomp:mode\", $processing_mode, \"loudcomp:fft\", $fft_quality, \"loudcomp:approx\", $iir_approx, \"loudcomp:std\", $curve, \"loudcomp:hclip\", $is_clipping, \"loudcomp:hcrange\", $clipping_range, \"loudcomp:volume\", $raw_volume ] }"
 
 
     wpctl set-default "$loudcomp_node_id"
@@ -911,8 +936,8 @@ function _start_daemon() {
     wpctl set-mute "$output_id" "$mute_state"
 
 
-    [[ "${auto_reload:-}" == true ]] && _auto_reload
-    [[ "${auto_switch:-}" == true ]] && _auto_switch
+    [[ "${auto_reload:-}" == true ]] && _start_auto_reload
+    [[ "${auto_switch:-}" == true ]] && _start_auto_switch
 
 
     systemd-notify --ready 2>/dev/null || :
@@ -921,7 +946,7 @@ function _start_daemon() {
     while read -r cmd arg1 arg2; do
         case "$cmd" in
             "set")
-                pw-cli set-param "$loudcomp_node_id" 2 "{ \"params\": [ \"loudcomp:$arg1\", $arg2 ] }" >/dev/null
+                _pwcli_set_param 2 "{ \"params\": [ \"loudcomp:$arg1\", $arg2 ] }"
             ;;
             "_set_relative_input_gain"|"_set_relative_volume"|"_set_input_gain"|"_set_volume"|"_set_mute_state"|"_set_curve_state"|"_stop_daemon"|"_start_socket"|"_stop_socket"|"_send_state"|"_reload"|"_switch")
                 ${cmd} "$arg1" "$arg2"
@@ -1001,9 +1026,9 @@ function _main() {
                 if systemctl --user is-active pw-loudcompd >/dev/null; then
                     systemctl --user stop pw-loudcompd
                 else
-                    declare -i inotifywait_PID
-                    coproc inotifywait { inotifywait -q -m -e delete "$runtime_dir"; }
+                    coproc inotifywait { exec inotifywait -q -m -e delete "$runtime_dir"; }
 
+                    # shellcheck disable=SC2154
                     trap 'kill "${inotifywait_PID:-}" &>/dev/null' INT
 
                     printf '_stop_daemon\n' > "$runtime_dir/command_handler"
