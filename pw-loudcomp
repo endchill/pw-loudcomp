@@ -347,7 +347,7 @@ function _create_loudcomp_node_config() {
 }
 
 
-function _get_output_info() {
+function _update_output_info_auto() {
     local wpctl_devices_list="$1"
 
     read -r output_name output_id < <(awk '/audio\/sink.*\*/ { printf "%s\t%d\n", $2, $1 }' <<< "$wpctl_devices_list") || :
@@ -359,6 +359,35 @@ function _get_output_info() {
             /priority.session/ { gsub(/^"+|"+$/, "", $2); list[$2] = name; FS = "[ ,]"; $0 = $0}
             END {PROCINFO["sorted_in"] = "@ind_num_desc"; for (score in list) {print list[score]; break}; }
         ')
+    fi
+}
+
+
+function _update_output_info() {
+    wpctl_list="$(wpctl list)"
+
+    if [[ "$output_device" == "auto" ]]; then
+        _update_output_info_auto "$wpctl_list"
+    else
+        if [[ "$wpctl_list" == *"$output_device"* ]]; then
+            output_name="$output_device"
+            output_id="$(awk -v output_device="$output_device" '$2 == output_device {print $1}' <<< "$wpctl_list")"
+        else
+            if [[ "$output_device_fallback" == "none" ]]; then
+                _print_message "stderr" "No such device" "cannot find '${RED}${output_device}${RESET}'"
+                return 1
+            elif [[ "$output_device_fallback" == "auto" ]]; then
+                _update_output_info_auto "$wpctl_list"
+            else
+                if [[ "$wpctl_list" == *"$output_device_fallback"* ]]; then
+                    output_name="$output_device_fallback"
+                    output_id="$(awk -v output_device_fallback="$output_device_fallback" '$2 == output_device_fallback {print $1}' <<< "$wpctl_list")"
+                else
+                    _print_message "stderr" "No such device" "cannot find fallback '${RED}${output_device_fallback}${RESET}'"
+                    return 1
+                fi
+            fi
+        fi
     fi
 }
 
@@ -618,32 +647,7 @@ function _reload_config() {
     fi
 
     if [[ "$output_device" != "$last_output_device" ]]; then
-        wpctl_list="$(wpctl list)"
-
-        if [[ "$output_device" == "auto" ]]; then
-            _get_output_info "$wpctl_list"
-        else
-            if [[ "$wpctl_list" == *"$output_device"* ]]; then
-                output_name="$output_device"
-                output_id="$(awk -v output_device="$output_device" '$2 == output_device {print $1}' <<< "$wpctl_list")"
-            else
-                if [[ "$output_device_fallback" == "none" ]]; then
-                    _print_message "stderr" "No such device" "cannot find '${RED}${output_device}${RESET}'"
-                    return 1
-                elif [[ "$output_device_fallback" == "auto" ]]; then
-                    _get_output_info "$wpctl_list"
-                else
-                    if [[ "$wpctl_list" == *"$output_device_fallback"* ]]; then
-                        output_name="$output_device_fallback"
-                        output_id="$(awk -v output_device_fallback="$output_device_fallback" '$2 == output_device_fallback {print $1}' <<< "$wpctl_list")"
-                    else
-                        _print_message "stderr" "No such device" "cannot find fallback '${RED}${output_device_fallback}${RESET}'"
-                        return 1
-                    fi
-                fi
-            fi
-        fi
-
+        _update_output_info
 
         if [[ "${system_transfer:-}" == true ]]; then
             output_volume="$(awk -v input_gain="$global_input_gain" -v raw_volume="$raw_volume" 'BEGIN {printf "%.2f\n", (10 ^ ((input_gain + raw_volume) / 60))}')"
@@ -654,7 +658,6 @@ function _reload_config() {
         read -r _ output_volume _ < <(wpctl get-volume "$output_id")
 
         if [[ "${system_transfer:-}" == true ]]; then
-            notify-send 'Test'
             if [[ "$(wpctl get-volume "$output_id")" == *"[MUTED]"* ]]; then
                 mute_state=1
             else
@@ -829,31 +832,7 @@ function _start_daemon() {
 
     sleep 0.1s
 
-    wpctl_list="$(wpctl list)"
-
-    if [[ "$output_device" == "auto" ]]; then
-        _get_output_info "$wpctl_list"
-    else
-        if [[ "$wpctl_list" == *"$output_device"* ]]; then
-            output_name="$output_device"
-            output_id="$(awk -v output_device="$output_device" '$2 == output_device {print $1}' <<< "$wpctl_list")"
-        else
-            if [[ "$output_device_fallback" == "none" ]]; then
-                _print_message "stderr" "No such device" "cannot find '${RED}${output_device}${RESET}'"
-                return 1
-            elif [[ "$output_device_fallback" == "auto" ]]; then
-                _get_output_info "$wpctl_list"
-            else
-                if [[ "$wpctl_list" == *"$output_device_fallback"* ]]; then
-                    output_name="$output_device_fallback"
-                    output_id="$(awk -v output_device_fallback="$output_device_fallback" '$2 == output_device_fallback {print $1}' <<< "$wpctl_list")"
-                else
-                    _print_message "stderr" "No such device" "cannot find fallback '${RED}${output_device_fallback}${RESET}'"
-                    return 1
-                fi
-            fi
-        fi
-    fi
+    _update_output_info
 
 
     last_output_device="$output_name"
