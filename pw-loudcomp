@@ -1029,14 +1029,8 @@ function _main() {
 
                 return 1
             else
-                # if [[ -t 0 ]] [[ "${is_systemd_used:-}" == true ]]; then
-                #     systemctl --user start pw-loudcompd.service
-                #     _print_message "stdout" "daemon has been started via systemd service"
-                #     return 0
-                # else
-                    _start_daemon
-                    return "$?"
-                # fi
+                _start_daemon
+                return "$?"
             fi
         ;;
         "stop-daemon")
@@ -1073,15 +1067,9 @@ function _main() {
             fi
         ;;
         "start-socket")
-            if [[ "${is_systemd_used:-}" == true ]]; then
-                if systemctl --user is-active pw-loudcomp-socket.socket &>/dev/null; then
-                    _print_message "stderr" "Socket already running via systemd socket" "cannot start socket"
-                    return 1
-                # else
-                #     systemctl --user start pw-loudcomp-socket.socket
-                #     _print_message "stdout" "socket has been started via systemd socket"
-                #     return 0
-                fi
+            if [[ "${is_systemd_used:-}" == true ]] && systemctl --user is-active pw-loudcomp-socket.socket &>/dev/null; then
+                _print_message "stderr" "Socket already running via systemd socket" "cannot start socket"
+                return 1
             else
                 if [[ -S "$runtime_dir/state.sock" ]]; then
                     _print_message "stderr" "Socket already running" "cannot start socket"
