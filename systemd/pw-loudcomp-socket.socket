@@ -3,7 +3,7 @@ Description=pw-loudcomp socket listner
 
 [Socket]
 RuntimeDirectory=pw-loudcomp
-RuntimeDirectoryMode=0660
+RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes
 ListenStream=%t/pw-loudcomp/state.sock
 RemoveOnStop=yes
