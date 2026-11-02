@@ -569,7 +569,7 @@ function _start_socket() {
 
     # shellcheck disable=SC2034
     coproc socket {
-        exec socat UNIX-LISTEN:"$runtime_dir/state.sock",fork EXEC:"$0 _socket_handler"
+        exec socat UNIX-LISTEN:"$runtime_dir/state.sock",fork EXEC:"${BASH_SOURCE[0]} _socket_handler"
     }
 
     # shellcheck disable=SC2154
@@ -590,7 +590,7 @@ function _socket_handler() {
     trap 'rm "$fifo_filepath"' EXIT
     exec 3<> "$fifo_filepath"
 
-    sleep 0.01s && printf '_send_state\n' > "$runtime_dir/command_handler"
+    [[ -e "$runtime_dir/pw-loudcomp.lock" ]] && sleep 0.01s && printf '_send_state\n' > "$runtime_dir/command_handler"
     while read -r line; do
         printf '%s\n' "$line"
     done <&3
@@ -948,12 +948,20 @@ function _start_daemon() {
 
 
     while read -r cmd arg1 arg2; do
+        if [[ -n "${arg2:-}" ]]; then
+            _print_log "info" "received ${MAGENTA}${cmd}${RESET} from command_handler with arguments ${YELLOW}${arg1} ${arg2}${RESET}"
+        elif [[ -n "${arg1:-}" ]]; then
+            _print_log "info" "received ${MAGENTA}${cmd}${RESET} from command_handler with argument ${YELLOW}${arg1}${RESET}"
+        else
+            _print_log "info" "received ${MAGENTA}${cmd}${RESET} from command_handler"
+        fi
+
         case "$cmd" in
             "set")
                 _pwcli_set_param 2 "{ \"params\": [ \"loudcomp:$arg1\", $arg2 ] }"
             ;;
             "_set_relative_input_gain"|"_set_relative_volume"|"_set_input_gain"|"_set_volume"|"_set_mute_state"|"_set_curve_state"|"_stop_daemon"|"_start_socket"|"_stop_socket"|"_send_state"|"_reload"|"_switch")
-                ${cmd} "$arg1" "$arg2"
+                ${cmd} "${arg1:-}" "${arg2:-}"
             ;;
             *)
                 printf '%s is not a command\n' "$cmd"
