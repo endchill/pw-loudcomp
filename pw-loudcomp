@@ -44,14 +44,13 @@ fi
 
 #TODO * add a custom config filepath option -c, --config
 #TODO * make inputGain variable in _send_state instead of holding $global_input_gain to hold the current device input gain
-#TODO + add logging when using start-daemon and maybe start-socket
-#TODO + add a variable check for configs when sourced, maybe a function like _source "<filepath>" that source the file too?
+#TODO + add a multipleir values when transfer audio stat from system and pw-loudcomp and vi-versa
 #TODO - add an option that controls the limit for wpctl when changing the volume while the daemon is not running -l, --limit
 #TODO - make it reload when an audio device dis/connects
-#TODO - add a version check for pipewire wireplumber and any other program that need to be added if an older version does not support a used feature
-#TODO - add comments for only needed things
+#TODO - add more comments
 
 
+# _help {stdout|stderr}
 function _help() {
     local file_descriptor stream_type
     stream_type="$1"
@@ -88,6 +87,8 @@ function _help() {
         "    ${GREEN}1/0/toggle${RESET}                  Sets a state                                ${CYAN}(set-mute, set-curve-state)${RESET}" >& "$file_descriptor"
 }
 
+
+# _print_message {stdout|stderr} <reason_message> [what_failed_message]
 function _print_message() {
     local file_descriptor stream_type what_failed reason
     stream_type="$1"
@@ -108,6 +109,7 @@ function _print_message() {
 }
 
 
+# _print_log {info|warn|error} <log_message>
 function _print_log() {
     local file_descriptor log_level_color stream_type message
     log_level="$1"
@@ -132,6 +134,69 @@ function _print_log() {
 }
 
 
+# declare -A variables=([variable_name]=data_type)
+# declare -A defaults=([variable_name]=default_value)
+# _source <filepath> variables values
+# shellcheck disable=SC2329
+function _source() {
+    local is_valid_data_type variable
+    local filepath="$1"
+    local -n _variables="$2"
+    local -n _defaults="$3"
+
+    # shellcheck disable=SC2016
+    if /usr/bin/env bash -eu -c '. "$1"' _ "$filepath" &>/dev/null; then
+        # shellcheck disable=SC1090
+        . "$filepath"
+        for variable in "${!_variables[@]}"; do
+            is_valid_data_type=false
+
+            if [[ -v "$variable" ]]; then
+                case "${_variables[$variable]}" in
+                    "integer")
+                        if [[ "${!variable}" =~ ^-?[0-9]+$ ]]; then
+                            is_valid_data_type=true
+                        fi
+                    ;;
+                    "integer/empty")
+                        if [[ -z "${!variable}" || "${!variable}" =~ ^-?[0-9]+$ ]]; then
+                            is_valid_data_type=true
+                        fi
+                    ;;
+                    "string")
+                        if ! [[ -z "${!variable}" || "${!variable}" =~ ^-?[0-9]+$ ]]; then
+                            is_valid_data_type=true
+                        fi
+                    ;;
+                esac
+
+                if [[ "${is_valid_data_type:-}" != true ]]; then
+                    _print_log "error" "$filepath: ${RED}invalid data type${RESET}, ${CYAN}${variable}${RESET} should be ${MAGENTA}${_variables[$variable]}${RESET}, falling back to default value ${YELLOW}'${_defaults[$variable]}'${RESET}"
+                    declare -g "$variable=${_defaults[$variable]}"
+                    continue
+                fi
+            else
+                _print_log "error" "$filepath: ${RED}unset variable${RESET} ${CYAN}${variable}${RESET}, falling back to default value ${YELLOW}'${_defaults[$variable]}'${RESET}"
+                declare -g "$variable=${_defaults[$variable]}"
+                continue
+            fi
+
+            _print_log "info" "$filepath: ${GRAY}source${RESET} variable ${CYAN}${variable}${RESET} with value ${YELLOW}${!variable}${RESET}"
+        done
+    else
+        _print_log "error" "$filepath: ${RED}invalid environment file${RESET}, falling back to default values"
+        for variable in "${!_variables[@]}"; do
+            declare -g "$variable=${_defaults[$variable]}"
+            printf '    %b%s%b %b%s%b\n' "$CYAN" "$variable" "$RED" "$YELLOW" "${_defaults[$variable]}" "$RED"
+        done
+    fi
+
+    unset _variables _defaults
+}
+
+
+# kill a process and all children processes
+# _kill_recursively <pid>
 # shellcheck disable=SC2329
 function _kill_recursively() {
     local parent_pid="$1"
@@ -150,6 +215,7 @@ function _kill_recursively() {
 }
 
 
+# check if config file exists or not then ask to create or overwrite
 function _check_config() {
     trap "printf '\nOperation cancelled\n'; exit 130" INT TERM
 
@@ -180,6 +246,7 @@ function _check_config() {
 }
 
 
+# _create_config <filepath>
 function _create_config() {
     local filepath="$1"
 
@@ -216,6 +283,7 @@ lowest_volume_limit= # percentage|empty
 }
 
 
+# _create_state_file <filepath>
 function _create_state_file() {
     local filepath="$1"
 
@@ -250,6 +318,8 @@ node_om:activate()
 }
 
 
+
+# _create_device_watcher_script <filepath> <pipewire_node_description>
 function _create_device_watcher_script() {
     local filepath="$1"
     local loudcomp_node_description="$2"
@@ -299,6 +369,7 @@ metadata_om:activate()
 }
 
 
+# _create_loudcomp_node_config <filepath>
 function _create_loudcomp_node_config() {
     local filepath="$1"
 
@@ -368,6 +439,7 @@ function _update_output_info() {
             output_name="$output_device"
             output_id="$(awk -v output_device="$output_device" '$2 == output_device {print $1}' <<< "$wpctl_list")"
         else
+            # shellcheck disable=SC2154
             if [[ "$output_device_fallback" == "none" ]]; then
                 _print_message "stderr" "No such device" "cannot find '${RED}${output_device}${RESET}'"
                 return 1
@@ -387,27 +459,31 @@ function _update_output_info() {
 }
 
 
+# save pw-loudcomp device state
 function _save_state() {
     printf 'output_volume=%.2f\nmute_state=%d\ncurve_state=%d\nraw_input_gain=%.6f\nraw_volume=%.6f\n' "$output_volume" "$mute_state" "$curve_state" "$raw_input_gain" "$raw_volume" > "$data_dir/state.env"
 }
 
 
+# send pw-loudcomp device state to IPC socket
 # shellcheck disable=SC2329
 function _send_state() {
     for fifo_filepath in "$runtime_dir"/*; do
         [[ -p "$fifo_filepath" && "$fifo_filepath" != "$runtime_dir/command_handler" ]] || continue
 
+        # shellcheck disable=SC2154
         printf '{"outputID": %d, "inputGain": %d, "volume": %d, "muteState": %d, "curveState": %d, "listeningVolume": %d, "highestInputGainLimit": %d, "lowestInputGainLimit": %d, "highestVolumeLimit": %d, "lowestVolumeLimit": %d}\n' "$output_id" "$global_input_gain" "$volume" "$mute_state" "$curve_state" "$listening_volume" "${highest_input_gain_limit:-$global_input_gain}" "${lowest_input_gain_limit:-$global_input_gain}" "${highest_volume_limit:-100}" "${lowest_volume_limit:-0}" > "$fifo_filepath" &
     done
 
     if [[ "${XDG_CURRENT_DESKTOP:-}" == "KDE" ]]; then
         if [[ "$mute_state" == 0 ]]; then
-            qdbus6 org.kde.plasmashell /org/kde/osdService org.kde.osdService.volumeChanged "$volume" 2>/dev/null &
+            qdbus6 org.kde.plasmashell /org/kde/osdService org.kde.osdService.volumeChanged "$volume" &>/dev/null &
         else
-            qdbus6 org.kde.plasmashell /org/kde/osdService org.kde.osdService.volumeChanged 0 2>/dev/null &
+            qdbus6 org.kde.plasmashell /org/kde/osdService org.kde.osdService.volumeChanged 0 &>/dev/null &
         fi
     fi
 
+    # shellcheck disable=SC2154
     if [[ "$play_sound" == true ]] && [[ "$mute_state" == 0 ]] && [[ "${sound_available:-}" == true ]]; then
         play "/usr/share/sounds/$sound_theme/stereo/audio-volume-change.oga" 2>/dev/null &
     fi
@@ -434,6 +510,7 @@ function _set_input_gain() {
 
     if [[ "${auto_adjust_volume:-}" == true ]]; then
         auto_adjust_trigger=true
+        # shellcheck disable=SC2154
         new_volume="$(awk -v volume="$volume" -v db_diff="$((previous_input_gain-global_input_gain))" -v vce="$volume_curve_exponent" 'BEGIN {printf "%.0f\n", volume * (10 ^ (db_diff / (20 * vce)))}')"
 
         wpctl set-mute "$output_id" 1
@@ -541,6 +618,7 @@ function _set_mute_state() {
 # shellcheck disable=SC2329
 function _set_curve_state() {
     if [[ "$1" == "toggle" ]]; then
+        # shellcheck disable=SC2154
         if [[ "$curve_state" -eq "$curve" ]]; then
             curve_state=0
         else
@@ -575,7 +653,7 @@ function _start_socket() {
     # shellcheck disable=SC2154
     printf '%s\n' "$socket_PID" > "$runtime_dir/socket_pid"
 
-    _print_log "info" "socket is running"
+    _print_log "info" "socket is ${GREEN}running${RESET}"
 
     wait "$socket_PID"
 }
@@ -615,6 +693,7 @@ function _stop_socket() {
 }
 
 
+# runs loudcomp node in background
 function _create_loudcomp_node() {
     # shellcheck disable=SC2034
     coproc loudcomp_node {
@@ -623,7 +702,7 @@ function _create_loudcomp_node() {
 }
 
 
-
+# runs pw-cli in interactive mode in background
 function _start_pwcli_handler() {
     # shellcheck disable=SC2034
     coproc pwcli_handler {
@@ -632,6 +711,7 @@ function _start_pwcli_handler() {
 }
 
 
+# send pipewire parameter to pwcli_handler
 function _pwcli_set_param() {
     local param_id="$1"
     local json="$2"
@@ -640,6 +720,7 @@ function _pwcli_set_param() {
 }
 
 
+# connects loudcomp node to device node
 function _connect_nodes() {
     while read -r line; do
         if [[ "$line" == "ready" ]]; then
@@ -652,6 +733,7 @@ function _connect_nodes() {
 }
 
 
+# disconnects loudcomp node to device node
 # shellcheck disable=SC2329
 function _disconnect_nodes() {
     pw-link -d "${loudcomp_node_description:-}:output_FL" "${output_name:-}:playback_FL" 2>/dev/null || :
@@ -661,10 +743,73 @@ function _disconnect_nodes() {
 
 # shellcheck disable=SC2329
 function _reload_config() {
-    # shellcheck disable=SC1091
-    source "$config_dir/settings.env"
-    # shellcheck disable=SC1091
-    source "$data_dir/state.env"
+    # shellcheck disable=SC2034
+    declare -A variables=(
+        [global_input_gain]="integer"
+        [listening_volume]="integer"
+        [volume_curve_exponent]="string"
+        [processing_mode]="integer"
+        [fft_quality]="integer"
+        [iir_approx]="integer"
+        [curve]="integer"
+        [is_clipping]="integer"
+        [clipping_range]="integer"
+        [output_device]="string"
+        [output_device_fallback]="string"
+        [system_transfer]="string"
+        [system_fallback]="string"
+        [auto_adjust_volume]="string"
+        [play_sound]="string"
+        [auto_reload]="string"
+        [auto_switch]="string"
+        [highest_input_gain_limit]="integer/empty"
+        [lowest_input_gain_limit]="integer/empty"
+        [highest_volume_limit]="integer/empty"
+        [lowest_volume_limit]="integer/empty"
+    )
+    # shellcheck disable=SC2034
+    declare -A defaults=(
+        [global_input_gain]=0
+        [listening_volume]=83
+        [volume_curve_exponent]=2.5
+        [processing_mode]="1"
+        [fft_quality]="1"
+        [iir_approx]="2"
+        [curve]="4"
+        [is_clipping]="0"
+        [clipping_range]="6"
+        [output_device]="auto"
+        [output_device_fallback]="none"
+        [system_transfer]="false"
+        [system_fallback]="false"
+        [auto_adjust_volume]="false"
+        [play_sound]="false"
+        [auto_reload]="false"
+        [auto_switch]="false"
+        [highest_input_gain_limit]=""
+        [lowest_input_gain_limit]=""
+        [highest_volume_limit]=""
+        [lowest_volume_limit]=""
+    )
+    _source "$config_dir/settings.env" variables defaults
+
+    # shellcheck disable=SC2034
+    declare -A variables=(
+        [output_volume]="string"
+        [mute_state]="integer"
+        [curve_state]="integer"
+        [raw_input_gain]="string"
+        [raw_volume]="string"
+    )
+    # shellcheck disable=SC2034
+    declare -A defaults=(
+        [output_volume]="0.5"
+        [mute_state]="0"
+        [curve_state]="4"
+        [raw_input_gain]="1.0"
+        [raw_volume]="-10.0"
+    )
+    _source "$data_dir/state.env" variables defaults
 
     [[ -z "${highest_volume_limit:-}" || "${highest_volume_limit:-}" -gt 100 ]] && highest_volume_limit=100
     [[ -z "${lowest_volume_limit:-}"  || "${lowest_volume_limit:-}"  -lt 0   ]] && lowest_volume_limit=0
@@ -728,6 +873,7 @@ function _reload_config() {
     raw_input_gain="$(awk -v input_gain="$global_input_gain" 'BEGIN {printf "%.6f\n", (10 ^ (input_gain / 20))}')"
 
 
+    # shellcheck disable=SC2154
     _pwcli_set_param 2 "{ \"params\": [ \"loudcomp:input\", $raw_input_gain, \"loudcomp:mode\", $processing_mode, \"loudcomp:fft\", $fft_quality, \"loudcomp:approx\", $iir_approx, \"loudcomp:std\", $curve, \"loudcomp:hclip\", $is_clipping, \"loudcomp:hcrange\", $clipping_range, \"loudcomp:volume\", $raw_volume ] }"
     { _send_state; _save_state; } &
 }
@@ -831,10 +977,72 @@ function _start_daemon() {
     mkfifo "$runtime_dir/command_handler"
     exec 3<> "$runtime_dir/command_handler"
 
-    # shellcheck disable=SC1091
-    source "$config_dir/settings.env"
-    # shellcheck disable=SC1091
-    source "$data_dir/state.env"
+    # shellcheck disable=SC2034
+    declare -A variables=(
+        [global_input_gain]="integer"
+        [listening_volume]="integer"
+        [volume_curve_exponent]="string"
+        [processing_mode]="integer"
+        [fft_quality]="integer"
+        [iir_approx]="integer"
+        [curve]="integer"
+        [is_clipping]="integer"
+        [clipping_range]="integer"
+        [output_device]="string"
+        [output_device_fallback]="string"
+        [system_transfer]="string"
+        [system_fallback]="string"
+        [auto_adjust_volume]="string"
+        [play_sound]="string"
+        [auto_reload]="string"
+        [auto_switch]="string"
+        [highest_input_gain_limit]="integer/empty"
+        [lowest_input_gain_limit]="integer/empty"
+        [highest_volume_limit]="integer/empty"
+        [lowest_volume_limit]="integer/empty"
+    )
+    # shellcheck disable=SC2034
+    declare -A defaults=(
+        [global_input_gain]=0
+        [listening_volume]=83
+        [volume_curve_exponent]=2.5
+        [processing_mode]="1"
+        [fft_quality]="1"
+        [iir_approx]="2"
+        [curve]="4"
+        [is_clipping]="0"
+        [clipping_range]="6"
+        [output_device]="auto"
+        [output_device_fallback]="none"
+        [system_transfer]="false"
+        [system_fallback]="false"
+        [auto_adjust_volume]="false"
+        [play_sound]="false"
+        [auto_reload]="false"
+        [auto_switch]="false"
+        [highest_input_gain_limit]=""
+        [lowest_input_gain_limit]=""
+        [highest_volume_limit]=""
+        [lowest_volume_limit]=""
+    )
+    _source "$config_dir/settings.env" variables defaults
+    # shellcheck disable=SC2034
+    declare -A variables=(
+        [output_volume]="string"
+        [mute_state]="integer"
+        [curve_state]="integer"
+        [raw_input_gain]="string"
+        [raw_volume]="string"
+    )
+    # shellcheck disable=SC2034
+    declare -A defaults=(
+        [output_volume]="0.5"
+        [mute_state]="0"
+        [curve_state]="4"
+        [raw_input_gain]="1.0"
+        [raw_volume]="-10.0"
+    )
+    _source "$data_dir/state.env" variables defaults
 
 
     if command -v play >/dev/null; then
@@ -944,7 +1152,7 @@ function _start_daemon() {
 
     [[ "${is_systemd_used:-}" == true ]] && systemd-notify --ready 2>/dev/null
 
-    _print_log "info" "daemon is running"
+    _print_log "info" "daemon is ${GREEN}running${RESET}"
 
 
     while read -r cmd arg1 arg2; do
@@ -1143,7 +1351,11 @@ function _main() {
         ;;
         "set-volume")
             # shellcheck disable=SC1091
-            [[ -f "$config_dir/settings.env" ]] && source "$config_dir/settings.env"
+            if [[ ! -f "$config_dir/settings.env" ]] && ! . "$config_dir/settings.env" &>/dev/null; then
+                _print_message "stderr" "Unable to source $config_dir/settings.env"
+                return 1
+            fi
+
             if [[ -z "${2:-}" ]]; then
                 _print_message "stderr" "Invalid argument" "command value not specified"
                 printf '\n'
@@ -1193,7 +1405,11 @@ function _main() {
         ;;
         "set-mute")
             # shellcheck disable=SC1091
-            [[ -f "$config_dir/settings.env" ]] && source "$config_dir/settings.env"
+            if [[ ! -f "$config_dir/settings.env" ]] && ! . "$config_dir/settings.env" &>/dev/null; then
+                _print_message "stderr" "Unable to source $config_dir/settings.env"
+                return 1
+            fi
+
             if [[ -f "$runtime_dir/pw-loudcomp.lock" ]] || [[ "${system_fallback:-}" == true ]]; then
                 if [[ -z "${2:-}" ]]; then
                     _print_message "stderr" "Invalid argument" "command value not specified"
@@ -1212,9 +1428,9 @@ function _main() {
 
                     if [[ "${XDG_CURRENT_DESKTOP:-}" == "KDE" ]]; then
                         if [[ "$wpctl_get_volume" == *"[MUTED]"* ]]; then
-                            qdbus6 org.kde.plasmashell /org/kde/osdService org.kde.osdService.volumeChanged 0 2>/dev/null &
+                            qdbus6 org.kde.plasmashell /org/kde/osdService org.kde.osdService.volumeChanged 0 &>/dev/null &
                         else
-                            qdbus6 org.kde.plasmashell /org/kde/osdService org.kde.osdService.volumeChanged "$(awk -v volume="${wpctl_get_volume:8}" 'BEGIN {printf "%.0f\n", volume * 100}')" 2>/dev/null &
+                            qdbus6 org.kde.plasmashell /org/kde/osdService org.kde.osdService.volumeChanged "$(awk -v volume="${wpctl_get_volume:8}" 'BEGIN {printf "%.0f\n", volume * 100}')" &>/dev/null &
                         fi
                     fi
                     return 0
