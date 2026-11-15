@@ -660,8 +660,9 @@ function _start_socket() {
 
 
 function _socket_handler() {
-    trap '' INT TERM
     trap - EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
 
     fifo_filepath="$runtime_dir/$$"
     mkfifo "$fifo_filepath"
