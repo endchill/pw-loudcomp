@@ -42,6 +42,7 @@ fi
 [ "${BASH_VERSINFO[0]}" -ge 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ] || { printf 'Bash version %b%d.%d%b is not support, please use version %b4.2%b or higher\n' "$RED" "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}" "$RESET" "$GREEN" "$RESET" >&2; exit 1; }
 
 
+#TODO * fix hot-reloadable of play_sound and auto_reload and every setting that needs a restart to true reload when daemon is started without auto_reload is true
 #TODO * add a custom config filepath option -c, --config
 #TODO * make inputGain variable in _send_state instead of holding $global_input_gain to hold the current device input gain
 #TODO + add a multipleir values when transfer audio stat from system and pw-loudcomp and vi-versa
@@ -253,7 +254,7 @@ function _create_config() {
     printf \
 '# See %cman 5 pw-loudcomp%c for more infomation
 
-global_input_gain=0 # dB
+global_input_gain=-12 # dB
 listening_volume=83 # dB SPL
 volume_curve_exponent=2.5 # float
 

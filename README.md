@@ -73,7 +73,7 @@ All keys values are type integer.
 
 ## Calibration
 
-You calibrate by adjusting the input gain value in `~/pw-loudcomp/settings.env` or `$XDG_CONFIG_HOME/pw-loudcomp/settings.env` depending on the system. By default, it is set to 0 dB; a higher value will result in a higher bass response **AND** a higher volume, and vice versa.
+You calibrate by adjusting the input gain value in `~/pw-loudcomp/settings.env` or `$XDG_CONFIG_HOME/pw-loudcomp/settings.env` depending on the system. By default, it is set to -12 dB; a higher value will result in a higher bass response **AND** a higher volume, and vice versa.
 
 The goal is to calibrate your device to a reference (83 dB SPL), which can be complex. You can use an H.A.T.S. or another measurement method, or simply go by feel until it sounds right. If you are an audiophile, you likely know how to measure your headphone/earphone/speaker loudness in dB SPL. If you are not, go by feel; ultimately, you want to enjoy what you listen to.
 
