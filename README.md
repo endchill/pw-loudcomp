@@ -46,7 +46,7 @@ It's highly recommended to configure the settings, and integrated it with your D
 
 ## Enabling Color
 
-Enabling color can be achieved by setting **CLICOLOR** or **CLICOLOR_FORCE** to 1.
+Enabling color can be achieved by setting **CLICOLOR** or **CLICOLOR_FORCE** environment variable to 1.
 
 ## IPC Socket
 
