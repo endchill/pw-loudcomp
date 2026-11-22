@@ -151,28 +151,40 @@ function _source() {
         . "$filepath"
         for variable in "${!_variables[@]}"; do
             is_valid_data_type=false
+            value="${!variable}"
+            data_type="${_variables[$variable]}"
 
-            if [[ -v "$variable" ]]; then
-                case "${_variables[$variable]}" in
+            if [[ -n "$variable" ]]; then
+                case "$data_type" in
                     "integer")
-                        if [[ "${!variable}" =~ ^-?[0-9]+$ ]]; then
+                        if [[ "$value" =~ ^(-?)([0-9]+)$ ]]; then
+                            is_valid_data_type=true
+                        fi
+                    ;;
+                    "float")
+                        if [[ "$value" =~ ^(-?)([0-9]*)(\.[0-9]+)$ ]]; then
+                            is_valid_data_type=true
+                        fi
+                    ;;
+                    "integer/float")
+                        if [[ "$value" =~ ^(-?)([0-9]*)(\.?[0-9]+)$ ]]; then
                             is_valid_data_type=true
                         fi
                     ;;
                     "integer/empty")
-                        if [[ -z "${!variable}" || "${!variable}" =~ ^-?[0-9]+$ ]]; then
+                        if [[ -z "$value" || "$value" =~ ^(-?)([0-9]+)$ ]]; then
                             is_valid_data_type=true
                         fi
                     ;;
                     "string")
-                        if ! [[ -z "${!variable}" || "${!variable}" =~ ^-?[0-9]+$ ]]; then
+                        if ! [[ -z "$value" || "$value" =~ ^(-?)([0-9]+)$ ]]; then
                             is_valid_data_type=true
                         fi
                     ;;
                 esac
 
                 if [[ "${is_valid_data_type:-}" != true ]]; then
-                    _print_log "error" "$filepath: ${RED}invalid data type${RESET}, ${CYAN}${variable}${RESET} should be ${MAGENTA}${_variables[$variable]}${RESET}, falling back to default value ${YELLOW}'${_defaults[$variable]}'${RESET}"
+                    _print_log "error" "$filepath: ${RED}invalid data type${RESET}, ${CYAN}${variable}${RESET} should be ${MAGENTA}$data_type${RESET}, falling back to default value ${YELLOW}'${_defaults[$variable]}'${RESET}"
                     declare -g "$variable=${_defaults[$variable]}"
                     continue
                 fi
@@ -305,7 +317,7 @@ function _create_config() {
 
 global_input_gain=-12 # dB
 listening_volume=83 # dB SPL
-volume_curve_exponent=2.5 # float
+volume_curve_exponent=2.5 # integer|float
 
 processing_mode=1 # 0|1
 fft_quality=1 # 0-6
@@ -808,7 +820,7 @@ function _reload_config() {
     declare -A variables=(
         [global_input_gain]="integer"
         [listening_volume]="integer"
-        [volume_curve_exponent]="string"
+        [volume_curve_exponent]="integer/float"
         [processing_mode]="integer"
         [fft_quality]="integer"
         [iir_approx]="integer"
@@ -852,15 +864,15 @@ function _reload_config() {
         [highest_volume_limit]=""
         [lowest_volume_limit]=""
     )
-    _source "$config_dir/settings.env" variables defaults
+    _source "$config_filepath" variables defaults
 
     # shellcheck disable=SC2034
     declare -A variables=(
-        [output_volume]="string"
+        [output_volume]="integer/float"
         [mute_state]="integer"
         [curve_state]="integer"
-        [raw_input_gain]="string"
-        [raw_volume]="string"
+        [raw_input_gain]="integer/float"
+        [raw_volume]="integer/float"
     )
     # shellcheck disable=SC2034
     declare -A defaults=(
@@ -1052,7 +1064,7 @@ function _start_daemon() {
     declare -A variables=(
         [global_input_gain]="integer"
         [listening_volume]="integer"
-        [volume_curve_exponent]="string"
+        [volume_curve_exponent]="integer/float"
         [processing_mode]="integer"
         [fft_quality]="integer"
         [iir_approx]="integer"
@@ -1101,11 +1113,11 @@ function _start_daemon() {
 
     # shellcheck disable=SC2034
     declare -A variables=(
-        [output_volume]="string"
+        [output_volume]="integer/float"
         [mute_state]="integer"
         [curve_state]="integer"
-        [raw_input_gain]="string"
-        [raw_volume]="string"
+        [raw_input_gain]="integer/float"
+        [raw_volume]="integer/float"
     )
     # shellcheck disable=SC2034
     declare -A defaults=(
