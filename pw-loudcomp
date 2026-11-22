@@ -1221,7 +1221,7 @@ function _start_daemon() {
     [[ "${auto_switch:-}" == true ]] && _start_auto_switch
 
 
-    [[ "${is_systemd_used:-}" == true ]] && systemd-notify --ready 2>/dev/null
+    [[ "${is_systemd_used:-}" == true ]] && systemd-notify --ready 2>/dev/null || :
 
     _print_log "info" "daemon is ${GREEN}running${RESET}"
 
@@ -1447,7 +1447,7 @@ function _main() {
 
                     sleep 1s
 
-                    [[ "${is_systemd_used:-}" == true ]] && systemd-notify --stopping &>/dev/null
+                    [[ "${is_systemd_used:-}" == true ]] && systemd-notify --stopping &>/dev/null || :
                 fi
 
                 return 0
