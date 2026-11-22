@@ -577,7 +577,7 @@ function _set_input_gain() {
 
 
     _pwcli_set_param 2 "{ \"params\": [ \"loudcomp:input\", $raw_input_gain ] }"
-    [[ "${auto_adjust_trigger:-}" == true ]] && wpctl set-mute "$output_id" 0
+    [[ "${auto_adjust_trigger:-}" == true ]] && wpctl set-mute "$output_id" 0; mute_state=0
     { _send_state; _save_state; } &
 
     if [[ "$is_custom_input_gain" == true ]]; then
@@ -947,7 +947,7 @@ function _reload_config() {
 
 
     # shellcheck disable=SC2154
-    _pwcli_set_param 2 "{ \"params\": [ \"loudcomp:input\", $raw_input_gain, \"loudcomp:mode\", $processing_mode, \"loudcomp:fft\", $fft_quality, \"loudcomp:approx\", $iir_approx, \"loudcomp:std\", $curve, \"loudcomp:hclip\", $is_clipping, \"loudcomp:hcrange\", $clipping_range, \"loudcomp:volume\", $raw_volume ] }"
+    _pwcli_set_param 2 "{ \"params\": [ \"loudcomp:input\", $raw_input_gain, \"loudcomp:mode\", $processing_mode, \"loudcomp:fft\", $fft_quality, \"loudcomp:approx\", $iir_approx, \"loudcomp:std\", $curve_state, \"loudcomp:hclip\", $is_clipping, \"loudcomp:hcrange\", $clipping_range, \"loudcomp:volume\", $raw_volume ] }"
     { _send_state; _save_state; } &
 }
 
@@ -1206,7 +1206,7 @@ function _start_daemon() {
     _connect_nodes
 
 
-    _pwcli_set_param 2 "{ \"params\": [ \"loudcomp:input\", $raw_input_gain, \"loudcomp:mode\", $processing_mode, \"loudcomp:fft\", $fft_quality, \"loudcomp:approx\", $iir_approx, \"loudcomp:std\", $curve, \"loudcomp:hclip\", $is_clipping, \"loudcomp:hcrange\", $clipping_range, \"loudcomp:volume\", $raw_volume ] }"
+    _pwcli_set_param 2 "{ \"params\": [ \"loudcomp:input\", $raw_input_gain, \"loudcomp:mode\", $processing_mode, \"loudcomp:fft\", $fft_quality, \"loudcomp:approx\", $iir_approx, \"loudcomp:std\", $curve_state, \"loudcomp:hclip\", $is_clipping, \"loudcomp:hcrange\", $clipping_range, \"loudcomp:volume\", $raw_volume ] }"
 
 
     wpctl set-default "$loudcomp_node_id"
