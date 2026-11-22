@@ -1521,9 +1521,12 @@ function _main() {
             fi
         ;;
         "set-volume")
-            # shellcheck disable=SC1091
-            if [[ ! -f "$config_dir/settings.env" ]] && ! . "$config_dir/settings.env" &>/dev/null; then
-                _print_message "stderr" "Unable to source $config_dir/settings.env"
+            # shellcheck disable=SC1090
+            if [[ -f "$config_filepath" ]] && . "$config_filepath" &>/dev/null; then
+                # shellcheck disable=SC1090
+                . "$config_filepath"
+            else
+                _print_message "stderr" "Unable to source $config_filepath"
                 return 1
             fi
 
@@ -1567,9 +1570,12 @@ function _main() {
             fi
         ;;
         "set-mute")
-            # shellcheck disable=SC1091
-            if [[ ! -f "$config_dir/settings.env" ]] && ! . "$config_dir/settings.env" &>/dev/null; then
-                _print_message "stderr" "Unable to source $config_dir/settings.env"
+            # shellcheck disable=SC1090
+            if [[ -f "$config_filepath" ]] && . "$config_filepath" &>/dev/null; then
+                # shellcheck disable=SC1090
+                . "$config_filepath"
+            else
+                _print_message "stderr" "Unable to source $config_filepath"
                 return 1
             fi
 
